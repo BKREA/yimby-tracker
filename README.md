@@ -16,9 +16,13 @@ For every new article the scraper extracts:
 
 The Cloudflare JS challenge on newyorkyimby.com is cleared with headless Chromium (Playwright). RSS.app provides article discovery; Playwright provides full article HTML.
 
+## Web UI
+
+A deployable Next.js dashboard lives in [`web/`](web/). It does not run Playwright (Vercel can't); it triggers the GitHub Actions workflows in this repo and reads the sheet for a preview. See [`web/README.md`](web/README.md) for deployment.
+
 ## How it runs
 
-A GitHub Actions cron (`.github/workflows/daily-scrape.yml`) runs `python scrape.py` once a day. The script:
+A GitHub Actions cron (`.github/workflows/daily-scrape.yml`) runs `python scrape.py` once a day. A `.github/workflows/backfill.yml` workflow runs `backfill.py` on demand (dispatched from the web UI or the Actions tab). The script:
 
 1. Reads the existing **Link** column from the sheet → set of URLs already recorded.
 2. Pulls the RSS.app feed → list of recent article URLs.
