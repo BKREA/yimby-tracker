@@ -76,12 +76,32 @@ export GOOGLE_SERVICE_ACCOUNT_FILE='/path/to/service-account.json'
 python scrape.py
 ```
 
+## Historical backfill (one-off)
+
+`backfill.py` crawls `/YYYY/MM/page/N/` archive pages to write any articles missing from the sheet. Run it once locally before letting the daily cron take over.
+
+```bash
+# Dry-run: see how many articles would be fetched (no writes)
+python backfill.py --start 2025-08 --dry-run
+
+# Real run: backfill August 2025 → today
+python backfill.py --start 2025-08
+```
+
+Things to know:
+
+- **Long-running.** Each article takes ~5-10s (Cloudflare clearance per fetch). A 10-month backfill is ≈100-200 articles per month × ~7s ≈ 2-4 hours. Run it overnight on your Mac.
+- **Local only.** Don't put this in GitHub Actions — it would exceed the 6-hour job limit and would also pin the runner during what should be a fast daily cron.
+- **Safe to interrupt.** Rows are appended to the sheet in batches of 25; re-running skips URLs already in the sheet.
+- **Skipped pages.** The crawler stops paginating a month once it hits a 404 or finds no new in-month URLs — site's "Page X of N" count is sometimes inflated.
+
 ## Files
 
 ```
-scrape.py     entrypoint — orchestration, dedupe, polite delays
+scrape.py     daily entrypoint — RSS-driven, dedupe, polite delays
+backfill.py   one-off historical crawler over /YYYY/MM/ archive pages
 feed.py       parse the RSS.app feed → (url, pub_datetime) items
-article.py    Playwright wrapper — fresh context per article to clear Cloudflare
+article.py    Playwright wrapper — fresh context per page to clear Cloudflare
 extract.py    regex-based parsing of address / developer / location / notes
 sheets.py     Google Sheets read+append client
 .github/workflows/daily-scrape.yml   cron schedule
@@ -89,6 +109,5 @@ sheets.py     Google Sheets read+append client
 
 ## Notes & limitations
 
-- **One context per article.** Cloudflare returns a stricter JS challenge on follow-up navigations in the same browser session. Opening a fresh context for every article costs ~5s of CF clearance time but is reliable.
-- **No historical backfill beyond the feed.** RSS.app returns ~25 recent items (~6 days). If you need older articles, you'd need to crawl `/YYYY/MM/` archive pages — not currently implemented.
+- **One context per page.** Cloudflare returns a stricter JS challenge on follow-up navigations in the same browser session. Opening a fresh context for every page costs ~5-10s of CF clearance time but is reliable.
 - **Best-effort extraction.** The Developer and Notes fields are regex-based on YIMBY's writing patterns. Articles that deviate (e.g. a permit-status update with no project specs) will have empty fields; the full text remains in **Complete Article** so nothing is lost.

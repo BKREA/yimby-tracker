@@ -1,8 +1,8 @@
-"""Fetch a YIMBY article page through Playwright, waiting through Cloudflare's JS challenge.
+"""Fetch YIMBY pages through Playwright, waiting through Cloudflare's JS challenge.
 
-We open a fresh browser context for every article: Cloudflare re-issues a stricter
+We open a fresh browser context for every page: Cloudflare re-issues a stricter
 challenge on follow-up navigations in the same session, and a clean context dodges
-that escalation. Cost is ~5-10s per article (CF clearance), which is fine at our scale.
+that escalation. Cost is ~5-10s per page (CF clearance), which is fine at our scale.
 """
 from __future__ import annotations
 
@@ -46,7 +46,14 @@ def browser_session():
             browser.close()
 
 
-def fetch_article(browser, url: str, nav_timeout_ms: int = 60000, total_wait_ms: int = 60000) -> str:
+def _fetch_page(
+    browser,
+    url: str,
+    wait_selector: str | None,
+    nav_timeout_ms: int = 60000,
+    cf_wait_ms: int = 60000,
+    selector_timeout_ms: int = 15000,
+) -> str:
     ctx = browser.new_context(
         user_agent=_UA,
         viewport={"width": 1280, "height": 900},
@@ -63,16 +70,26 @@ def fetch_article(browser, url: str, nav_timeout_ms: int = 60000, total_wait_ms:
         try:
             page.wait_for_function(
                 "() => !document.title.startsWith('Just a moment')",
-                timeout=total_wait_ms,
+                timeout=cf_wait_ms,
             )
         except PWTimeout as exc:
             raise FetchError(f"Cloudflare challenge never cleared for {url}") from exc
 
-        try:
-            page.wait_for_selector(".entry-content", timeout=15000)
-        except PWTimeout as exc:
-            raise FetchError(f"no .entry-content found at {url}") from exc
+        if wait_selector:
+            try:
+                page.wait_for_selector(wait_selector, timeout=selector_timeout_ms, state="attached")
+            except PWTimeout as exc:
+                raise FetchError(f"selector {wait_selector!r} not found at {url}") from exc
 
         return page.content()
     finally:
         ctx.close()
+
+
+def fetch_article(browser, url: str) -> str:
+    return _fetch_page(browser, url, wait_selector=".entry-content")
+
+
+def fetch_archive(browser, url: str) -> str:
+    # Archive pages list posts; #content or article cards always render.
+    return _fetch_page(browser, url, wait_selector="a[href*='newyorkyimby.com/']")
