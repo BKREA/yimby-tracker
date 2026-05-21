@@ -16,20 +16,12 @@ export interface Article {
 }
 
 export async function loadArticles(): Promise<Article[]> {
-  // Pull articles.json via the GitHub Contents API so the same GH_TOKEN works
-  // for private repos. ?ref=main pins to the default branch.
+  // Public raw URL — no auth needed once the repo is public.
   const owner = env("GITHUB_OWNER");
   const repo = env("GITHUB_REPO");
   const res = await fetch(
-    `https://api.github.com/repos/${owner}/${repo}/contents/articles.json?ref=main`,
-    {
-      headers: {
-        Accept: "application/vnd.github.raw",
-        Authorization: `Bearer ${env("GH_TOKEN")}`,
-        "X-GitHub-Api-Version": "2022-11-28",
-      },
-      cache: "no-store",
-    },
+    `https://raw.githubusercontent.com/${owner}/${repo}/main/articles.json`,
+    { cache: "no-store" },
   );
   if (!res.ok) {
     throw new Error(`fetch articles.json failed: ${res.status} ${await res.text()}`);

@@ -5,13 +5,16 @@ import { RunButtons } from "./RunButtons";
 import { RunsTable } from "./RunsTable";
 import { ArticlesPreview } from "./ArticlesPreview";
 
-export default function Dashboard() {
-  const [refresh, setRefresh] = useState(0);
-  const bump = () => setRefresh((n) => n + 1);
+export interface DashboardLinks {
+  dailyScrape: string;
+  backfill: string;
+}
 
+export default function Dashboard({ links }: { links: DashboardLinks }) {
+  const [refresh] = useState(0);
   return (
     <div className="grid gap-6">
-      <RunButtons onDispatched={bump} />
+      <RunButtons links={links} />
       <RunsTable refreshSignal={refresh} />
       <ArticlesPreview refreshSignal={refresh} />
     </div>
