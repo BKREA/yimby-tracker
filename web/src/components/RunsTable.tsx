@@ -1,11 +1,11 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useState } from "react";
 
-interface Run {
+export interface Run {
   id: number;
   name: string;
-  status: string;
+  status: string; // queued | in_progress | completed
   conclusion: string | null;
   url: string;
   event: string;
@@ -15,13 +15,12 @@ interface Run {
 }
 
 function badge(status: string, conclusion: string | null): { label: string; className: string } {
-  if (status !== "completed") {
-    return { label: status, className: "bg-amber-500/20 text-amber-300" };
-  }
+  if (status === "queued") return { label: "queued", className: "bg-amber-500/20 text-amber-300" };
+  if (status === "in_progress") return { label: "running", className: "bg-sky-500/20 text-sky-300" };
   if (conclusion === "success") return { label: "success", className: "bg-emerald-500/20 text-emerald-300" };
   if (conclusion === "failure") return { label: "failure", className: "bg-red-500/20 text-red-300" };
   if (conclusion === "cancelled") return { label: "cancelled", className: "bg-neutral-500/20 text-neutral-300" };
-  return { label: conclusion ?? "—", className: "bg-neutral-500/20 text-neutral-300" };
+  return { label: conclusion ?? status, className: "bg-neutral-500/20 text-neutral-300" };
 }
 
 function relativeTime(iso: string): string {
@@ -33,35 +32,49 @@ function relativeTime(iso: string): string {
   return `${Math.floor(s / 86400)}d ago`;
 }
 
-export function RunsTable({ refreshSignal }: { refreshSignal: number }) {
-  const [runs, setRuns] = useState<Run[] | null>(null);
-  const [error, setError] = useState<string | null>(null);
+function isActive(r: Run): boolean {
+  return r.status !== "completed";
+}
 
-  const load = useCallback(async () => {
+export function RunsTable({
+  runs,
+  error,
+  onCancelled,
+}: {
+  runs: Run[] | null;
+  error: string | null;
+  onCancelled: () => void;
+}) {
+  const [cancelling, setCancelling] = useState<number | null>(null);
+  const [cancelError, setCancelError] = useState<string | null>(null);
+
+  async function cancel(runId: number) {
+    if (!confirm("Cancel this run? Any work already done will be discarded.")) return;
+    setCancelling(runId);
+    setCancelError(null);
     try {
-      const res = await fetch("/api/runs");
+      const res = await fetch("/api/cancel", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ runId }),
+      });
       if (!res.ok) {
         const body = (await res.json().catch(() => ({}))) as { error?: string };
         throw new Error(body.error ?? `HTTP ${res.status}`);
       }
-      const data = (await res.json()) as { runs: Run[] };
-      setRuns(data.runs);
-      setError(null);
+      onCancelled();
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+      setCancelError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setCancelling(null);
     }
-  }, []);
-
-  useEffect(() => {
-    load();
-    const interval = setInterval(load, 10_000);
-    return () => clearInterval(interval);
-  }, [load, refreshSignal]);
+  }
 
   return (
     <section className="border border-neutral-800 rounded-lg p-5 bg-neutral-900/40">
       <h2 className="text-lg font-semibold mb-3">Recent runs</h2>
       {error && <p className="text-sm text-red-400 mb-3">Error: {error}</p>}
+      {cancelError && <p className="text-sm text-red-400 mb-3">Cancel: {cancelError}</p>}
       {runs === null && !error && <p className="text-sm text-neutral-500">Loading…</p>}
       {runs && runs.length === 0 && <p className="text-sm text-neutral-500">No runs yet.</p>}
       {runs && runs.length > 0 && (
@@ -73,6 +86,7 @@ export function RunsTable({ refreshSignal }: { refreshSignal: number }) {
                 <th className="py-1.5 pr-3 font-normal">Status</th>
                 <th className="py-1.5 pr-3 font-normal">Trigger</th>
                 <th className="py-1.5 pr-3 font-normal">Started</th>
+                <th className="py-1.5 pr-3 font-normal"></th>
                 <th className="py-1.5 font-normal"></th>
               </tr>
             </thead>
@@ -89,6 +103,17 @@ export function RunsTable({ refreshSignal }: { refreshSignal: number }) {
                     </td>
                     <td className="py-2 pr-3 text-neutral-400">{r.event}</td>
                     <td className="py-2 pr-3 text-neutral-400">{relativeTime(r.createdAt)}</td>
+                    <td className="py-2 pr-3">
+                      {isActive(r) && (
+                        <button
+                          onClick={() => cancel(r.id)}
+                          disabled={cancelling === r.id}
+                          className="text-xs px-2 py-1 rounded border border-red-500/40 text-red-300 hover:bg-red-500/10 disabled:opacity-50"
+                        >
+                          {cancelling === r.id ? "Cancelling…" : "Cancel"}
+                        </button>
+                      )}
+                    </td>
                     <td className="py-2">
                       <a
                         href={r.url}

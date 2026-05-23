@@ -75,6 +75,17 @@ export async function listRecentRuns(perPage = 15): Promise<WorkflowRun[]> {
   return data.workflow_runs;
 }
 
+export async function cancelRun(runId: number): Promise<void> {
+  const res = await ghFetchAuthed(`/repos/${repoPath()}/actions/runs/${runId}/cancel`, {
+    method: "POST",
+  });
+  // GitHub returns 202 Accepted for cancel.
+  if (res.status !== 202) {
+    const body = await res.text();
+    throw new Error(`cancel failed: ${res.status} ${body}`);
+  }
+}
+
 export function workflowRunUrl(workflowFile: string): string {
   return `https://github.com/${repoPath()}/actions/workflows/${workflowFile}`;
 }
