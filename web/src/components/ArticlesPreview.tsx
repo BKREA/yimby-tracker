@@ -77,6 +77,14 @@ export function ArticlesPreview({ refreshSignal }: { refreshSignal: number }) {
   }, [load, refreshSignal]);
 
   const txCount = (articles ?? []).filter(isTransaction).length;
+  const devCount = (articles ?? []).length - txCount;
+
+  const PAGE_SIZE = 50;
+  const filtered = (articles ?? []).filter((a) =>
+    tab === "transaction" ? isTransaction(a) : !isTransaction(a),
+  );
+  const visible = filtered.slice(0, PAGE_SIZE);
+  const more = filtered.length - visible.length;
 
   return (
     <section className="border border-neutral-800 rounded-lg p-5 bg-neutral-900/40">
@@ -96,7 +104,7 @@ export function ArticlesPreview({ refreshSignal }: { refreshSignal: number }) {
               : "text-neutral-400 hover:text-white"
           }`}
         >
-          Development ({(articles ?? []).length - txCount})
+          Development ({devCount.toLocaleString()})
         </button>
         <button
           onClick={() => setTab("transaction")}
@@ -106,7 +114,7 @@ export function ArticlesPreview({ refreshSignal }: { refreshSignal: number }) {
               : "text-neutral-400 hover:text-white"
           }`}
         >
-          Transactions ({txCount})
+          Transactions ({txCount.toLocaleString()})
         </button>
       </div>
 
@@ -133,7 +141,7 @@ export function ArticlesPreview({ refreshSignal }: { refreshSignal: number }) {
               </tr>
             </thead>
             <tbody>
-              {articles.filter((a) => !isTransaction(a)).map((a) => (
+              {visible.map((a) => (
                 <tr key={a.url} className="border-t border-neutral-800 align-top">
                   <td className="py-2 pr-3">{blank(a.address)}</td>
                   <td className="py-2 pr-3 text-neutral-300">{blank(a.borough)}</td>
@@ -180,7 +188,7 @@ export function ArticlesPreview({ refreshSignal }: { refreshSignal: number }) {
                 </tr>
               </thead>
               <tbody>
-                {articles.filter(isTransaction).map((a) => (
+                {visible.map((a) => (
                   <tr key={a.url} className="border-t border-neutral-800 align-top">
                     <td className="py-2 pr-3">{blank(a.address)}</td>
                     <td className="py-2 pr-3 text-neutral-300">{fmtMoney(a.transaction_amount)}</td>
@@ -206,6 +214,12 @@ export function ArticlesPreview({ refreshSignal }: { refreshSignal: number }) {
             </table>
           )}
         </div>
+      )}
+
+      {articles && articles.length > 0 && more > 0 && (
+        <p className="text-xs text-neutral-500 mt-3">
+          Showing {visible.length} of {filtered.length} {tab === "development" ? "development" : "transaction"} records (most recent first).
+        </p>
       )}
     </section>
   );
