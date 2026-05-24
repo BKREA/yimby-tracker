@@ -57,8 +57,19 @@ export function ArticlesPreview({ refreshSignal }: { refreshSignal: number }) {
   const [articles, setArticles] = useState<Article[] | null>(null);
   const [total, setTotal] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [tab, setTab] = useState<"development" | "transaction">("development");
-  const [pageSize, setPageSize] = useState<number>(50);
+  const [tab, _setTab] = useState<"development" | "transaction">("development");
+  const [pageSize, _setPageSize] = useState<number>(50);
+  const [page, setPage] = useState<number>(0);  // 0-indexed
+
+  // Reset to page 0 whenever the visible slice would change underneath us.
+  const setTab = (t: "development" | "transaction") => {
+    _setTab(t);
+    setPage(0);
+  };
+  const setPageSize = (n: number) => {
+    _setPageSize(n);
+    setPage(0);
+  };
 
   const load = useCallback(async () => {
     try {
@@ -86,8 +97,11 @@ export function ArticlesPreview({ refreshSignal }: { refreshSignal: number }) {
   const filtered = (articles ?? []).filter((a) =>
     tab === "transaction" ? isTransaction(a) : !isTransaction(a),
   );
-  const visible = filtered.slice(0, pageSize);
-  const more = filtered.length - visible.length;
+  const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
+  const safePage = Math.min(page, totalPages - 1);  // clamp if data shrank
+  const sliceStart = safePage * pageSize;
+  const sliceEnd = sliceStart + pageSize;
+  const visible = filtered.slice(sliceStart, sliceEnd);
 
   function exportCsv() {
     const today = new Date().toISOString().slice(0, 10);
@@ -280,11 +294,53 @@ export function ArticlesPreview({ refreshSignal }: { refreshSignal: number }) {
       )}
 
       {articles && articles.length > 0 && filtered.length > 0 && (
-        <p className="text-xs text-neutral-500 mt-3">
-          Showing {visible.length.toLocaleString()} of {filtered.length.toLocaleString()}{" "}
-          {tab === "development" ? "development" : "transaction"} records (most recent first).
-          {more > 0 && " Increase page size above to see more."}
-        </p>
+        <div className="flex items-center justify-between mt-4 text-xs text-neutral-500">
+          <span>
+            Showing {(sliceStart + 1).toLocaleString()}–
+            {Math.min(sliceEnd, filtered.length).toLocaleString()} of{" "}
+            {filtered.length.toLocaleString()}{" "}
+            {tab === "development" ? "development" : "transaction"} records
+          </span>
+          {totalPages > 1 && (
+            <div className="flex items-center gap-1">
+              <button
+                onClick={() => setPage(0)}
+                disabled={safePage === 0}
+                className="px-2 py-0.5 rounded border border-neutral-800 text-neutral-400 hover:text-white hover:border-neutral-600 disabled:opacity-40 disabled:cursor-not-allowed"
+                title="First page"
+              >
+                «
+              </button>
+              <button
+                onClick={() => setPage((p) => Math.max(0, p - 1))}
+                disabled={safePage === 0}
+                className="px-2 py-0.5 rounded border border-neutral-800 text-neutral-400 hover:text-white hover:border-neutral-600 disabled:opacity-40 disabled:cursor-not-allowed"
+                title="Previous page"
+              >
+                ‹ Prev
+              </button>
+              <span className="px-2 text-neutral-400">
+                Page {safePage + 1} of {totalPages}
+              </span>
+              <button
+                onClick={() => setPage((p) => Math.min(totalPages - 1, p + 1))}
+                disabled={safePage >= totalPages - 1}
+                className="px-2 py-0.5 rounded border border-neutral-800 text-neutral-400 hover:text-white hover:border-neutral-600 disabled:opacity-40 disabled:cursor-not-allowed"
+                title="Next page"
+              >
+                Next ›
+              </button>
+              <button
+                onClick={() => setPage(totalPages - 1)}
+                disabled={safePage >= totalPages - 1}
+                className="px-2 py-0.5 rounded border border-neutral-800 text-neutral-400 hover:text-white hover:border-neutral-600 disabled:opacity-40 disabled:cursor-not-allowed"
+                title="Last page"
+              >
+                »
+              </button>
+            </div>
+          )}
+        </div>
       )}
     </section>
   );
