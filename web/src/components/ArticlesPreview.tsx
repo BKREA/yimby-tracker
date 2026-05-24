@@ -1,12 +1,14 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
+import { toCsv, downloadText } from "@/lib/csv";
 
 interface Article {
   url: string;
   scraped_at: string;
   article_type?: string;
   address?: string;
+  street_address?: string;
   neighborhood?: string;
   borough?: string;
   type?: string;
@@ -15,6 +17,7 @@ interface Article {
   number_of_units?: number | null;
   square_footage?: number | null;
   stories?: number | null;
+  height_ft?: number | null;
   transaction_amount?: number | null;
   price_per_unit?: number | null;
   price_per_square_foot?: number | null;
@@ -86,6 +89,43 @@ export function ArticlesPreview({ refreshSignal }: { refreshSignal: number }) {
   const visible = filtered.slice(0, PAGE_SIZE);
   const more = filtered.length - visible.length;
 
+  function exportCsv() {
+    const today = new Date().toISOString().slice(0, 10);
+    if (tab === "development") {
+      const header = [
+        "url", "scraped_at", "article_type", "address", "street_address",
+        "neighborhood", "borough", "type", "number_of_units", "square_footage",
+        "stories", "height_ft", "developer", "architect", "notes",
+      ];
+      const rows: (string | number | null | undefined)[][] = [header];
+      for (const a of filtered) {
+        rows.push([
+          a.url, a.scraped_at, a.article_type, a.address, a.street_address,
+          a.neighborhood, a.borough, a.type, a.number_of_units, a.square_footage,
+          a.stories, a.height_ft, a.developer, a.architect, a.notes,
+        ]);
+      }
+      downloadText(`yimby-development-${today}.csv`, toCsv(rows));
+    } else {
+      const header = [
+        "url", "scraped_at", "article_type", "address", "street_address",
+        "neighborhood", "borough", "transaction_amount", "price_per_unit",
+        "price_per_square_foot", "buyer", "seller", "brokers",
+        "date_of_transaction", "notes",
+      ];
+      const rows: (string | number | null | undefined)[][] = [header];
+      for (const a of filtered) {
+        rows.push([
+          a.url, a.scraped_at, a.article_type, a.address, a.street_address,
+          a.neighborhood, a.borough, a.transaction_amount, a.price_per_unit,
+          a.price_per_square_foot, a.buyer, a.seller, a.brokers,
+          a.date_of_transaction, a.notes,
+        ]);
+      }
+      downloadText(`yimby-transactions-${today}.csv`, toCsv(rows));
+    }
+  }
+
   return (
     <section className="border border-neutral-800 rounded-lg p-5 bg-neutral-900/40">
       <div className="flex items-baseline justify-between mb-3">
@@ -95,7 +135,7 @@ export function ArticlesPreview({ refreshSignal }: { refreshSignal: number }) {
         )}
       </div>
 
-      <div className="flex gap-2 mb-4 text-sm">
+      <div className="flex gap-2 mb-4 text-sm items-center">
         <button
           onClick={() => setTab("development")}
           className={`px-3 py-1 rounded ${
@@ -115,6 +155,14 @@ export function ArticlesPreview({ refreshSignal }: { refreshSignal: number }) {
           }`}
         >
           Transactions ({txCount.toLocaleString()})
+        </button>
+        <button
+          onClick={exportCsv}
+          disabled={filtered.length === 0}
+          className="ml-auto px-3 py-1 rounded border border-neutral-700 text-neutral-300 hover:text-white hover:border-neutral-500 disabled:opacity-50"
+          title={`Download all ${filtered.length} ${tab} records as CSV`}
+        >
+          ⬇ Download CSV ({filtered.length})
         </button>
       </div>
 
