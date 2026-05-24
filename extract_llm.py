@@ -223,6 +223,36 @@ def llm_parse_item(item, scraped_at: str) -> LLMArticle:
     )
 
 
+def llm_parse_article_html(html_text: str, url: str, scraped_at: str) -> LLMArticle:
+    """Build an LLMArticle from a fetched article HTML page (used by backfill)."""
+    from bs4 import BeautifulSoup  # local import to avoid extra dep at top
+
+    soup = BeautifulSoup(html_text, "lxml")
+
+    og = soup.find("meta", attrs={"property": "og:title"})
+    if og and og.get("content"):
+        title = og["content"]
+    else:
+        h1 = soup.find("h1")
+        title = h1.get_text(" ", strip=True) if h1 else ""
+    title = re.sub(r"\s*[-–|]\s*New York YIMBY\s*$", "", title).strip()
+
+    container = soup.select_one(".entry-content") or soup.find("article")
+    body_text = container.get_text(" ", strip=True) if container else ""
+    body_text = re.sub(r"Subscribe to YIMBY.+", "", body_text, flags=re.IGNORECASE | re.DOTALL)
+    body_text = re.sub(r"\s+", " ", body_text).strip()
+
+    fields = extract_with_llm(title, body_text)
+
+    return LLMArticle(
+        url=url,
+        scraped_at=scraped_at,
+        title=title,
+        body=body_text,
+        **{k: v for k, v in fields.items() if k in _allowed_fields()},
+    )
+
+
 def _allowed_fields() -> set[str]:
     return {
         "address", "street_address", "neighborhood", "borough", "notes",
