@@ -1,1 +1,9 @@
-[]
+[
+  {
+    "run_id": 26374221709,
+    "completed_at": "2026-05-24T22:15:21.569663+00:00",
+    "articles_added": 6,
+    "articles_failed": 0,
+    "status": "success"
+  }
+]
