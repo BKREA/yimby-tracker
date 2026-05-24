@@ -114,6 +114,7 @@ def main() -> int:
     ap.add_argument("--start", required=True, help="YYYY-MM (inclusive)")
     ap.add_argument("--end", default=None, help="YYYY-MM (inclusive). Defaults to current month.")
     ap.add_argument("--dry-run", action="store_true", help="Collect URLs but don't fetch/extract")
+    ap.add_argument("--limit", type=int, default=None, help="Process at most N new articles (for testing)")
     args = ap.parse_args()
 
     start = _parse_yyyy_mm(args.start)
@@ -130,6 +131,10 @@ def main() -> int:
 
         new_urls = [u for u in all_urls if u not in existing]
         print(f"[plan] {len(all_urls)} URLs found, {len(new_urls)} new (after dedupe)")
+
+        if args.limit:
+            new_urls = new_urls[: args.limit]
+            print(f"[plan] limited to first {len(new_urls)} for testing")
 
         if args.dry_run or not new_urls:
             return 0
