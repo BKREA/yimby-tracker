@@ -89,14 +89,22 @@ def collect_month_urls(browser, year: int, month: int) -> list[str]:
         return added
 
     _absorb(first_html)
+    # Walk pages 2..total_pages. Don't stop on the first empty page — a single
+    # transient miss (Cloudflare cache, duplicate content) used to chop runs in
+    # half. Only break after two consecutive empty pages, or a 404 (real end).
+    consecutive_empty = 0
     for page in range(2, total_pages + 1):
         try:
             html = fetch_archive(browser, f"{base}page/{page}/")
         except FetchError:
-            break
+            break  # 404 / Cloudflare hard fail — assume end of archive
         added = _absorb(html)
         if added == 0:
-            break
+            consecutive_empty += 1
+            if consecutive_empty >= 2:
+                break
+        else:
+            consecutive_empty = 0
         time.sleep(0.5)
 
     print(f"[{year}-{month:02d}] {len(urls)} unique article URLs")
