@@ -140,6 +140,34 @@ export function ArticlesPreview({ refreshSignal }: { refreshSignal: number }) {
     }
   }
 
+  function exportAllCsv() {
+    const today = new Date().toISOString().slice(0, 10);
+    // Union of every field across both schemas — one row per article, blank
+    // wherever a column doesn't apply (e.g. transaction fields on a permit article).
+    const header = [
+      "url", "scraped_at", "article_type",
+      "address", "street_address", "neighborhood", "borough",
+      "type", "developer", "architect",
+      "number_of_units", "square_footage", "stories", "height_ft",
+      "transaction_amount", "price_per_unit", "price_per_square_foot",
+      "buyer", "seller", "brokers", "date_of_transaction",
+      "notes",
+    ];
+    const rows: (string | number | null | undefined)[][] = [header];
+    for (const a of articles ?? []) {
+      rows.push([
+        a.url, a.scraped_at, a.article_type,
+        a.address, a.street_address, a.neighborhood, a.borough,
+        a.type, a.developer, a.architect,
+        a.number_of_units, a.square_footage, a.stories, a.height_ft,
+        a.transaction_amount, a.price_per_unit, a.price_per_square_foot,
+        a.buyer, a.seller, a.brokers, a.date_of_transaction,
+        a.notes,
+      ]);
+    }
+    downloadText(`yimby-all-${today}.csv`, toCsv(rows));
+  }
+
   return (
     <section className="border border-neutral-800 rounded-lg p-5 bg-neutral-900/40">
       <div className="flex items-baseline justify-between mb-3">
@@ -190,7 +218,15 @@ export function ArticlesPreview({ refreshSignal }: { refreshSignal: number }) {
             className="px-3 py-1 rounded border border-neutral-700 text-neutral-300 hover:text-white hover:border-neutral-500 disabled:opacity-50"
             title={`Download all ${filtered.length} ${tab} records as CSV`}
           >
-            ⬇ Download CSV ({filtered.length})
+            ⬇ {tab === "development" ? "Dev" : "Tx"} ({filtered.length})
+          </button>
+          <button
+            onClick={exportAllCsv}
+            disabled={(articles ?? []).length === 0}
+            className="px-3 py-1 rounded border border-neutral-700 text-neutral-300 hover:text-white hover:border-neutral-500 disabled:opacity-50"
+            title="Download every record (both tabs) with the union of all columns"
+          >
+            ⬇ All ({(articles ?? []).length.toLocaleString()})
           </button>
         </div>
       </div>
