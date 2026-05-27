@@ -15,5 +15,5 @@ export default auth((req) => {
 export const config = {
   // Exclude static assets, the login page itself, and the NextAuth handler
   // (otherwise the sign-in flow couldn't complete).
-  matcher: ["/((?!_next/static|_next/image|favicon.ico|api/auth|login).*)"],
+  matcher: ["/((?!_next/static|_next/image|favicon.ico|api/auth|api/debug-auth|login).*)"],
 };
