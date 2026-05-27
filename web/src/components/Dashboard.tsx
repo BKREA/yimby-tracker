@@ -73,7 +73,7 @@ export default function Dashboard() {
         onDispatch={setPendingDispatch}
       />
       <RunsTable runs={runs} error={error} onCancelled={loadRuns} />
-      <ArticlesPreview refreshSignal={refreshArticles} />
+      <ArticlesPreview refreshSignal={refreshArticles} runs={runs ?? []} />
     </div>
   );
 }

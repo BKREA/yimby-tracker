@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useCallback } from "react";
 import { toCsv, downloadText } from "@/lib/csv";
+import type { Run } from "./RunsTable";
 
 interface Article {
   url: string;
@@ -53,13 +54,21 @@ function blank(s?: string): string {
   return s && s.trim() ? s : "—";
 }
 
-export function ArticlesPreview({ refreshSignal }: { refreshSignal: number }) {
+interface Props {
+  refreshSignal: number;
+  runs: Run[];
+}
+
+export function ArticlesPreview({ refreshSignal, runs }: Props) {
   const [articles, setArticles] = useState<Article[] | null>(null);
   const [total, setTotal] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [tab, _setTab] = useState<"development" | "transaction">("development");
   const [pageSize, _setPageSize] = useState<number>(50);
   const [page, setPage] = useState<number>(0);  // 0-indexed
+  // Filters
+  const [fromDate, _setFromDate] = useState<string>("");  // YYYY-MM-DD or ""
+  const [toDate, _setToDate] = useState<string>("");
 
   // Reset to page 0 whenever the visible slice would change underneath us.
   const setTab = (t: "development" | "transaction") => {
@@ -70,6 +79,55 @@ export function ArticlesPreview({ refreshSignal }: { refreshSignal: number }) {
     _setPageSize(n);
     setPage(0);
   };
+  const setFromDate = (d: string) => {
+    _setFromDate(d);
+    setPage(0);
+  };
+  const setToDate = (d: string) => {
+    _setToDate(d);
+    setPage(0);
+  };
+
+  // Quick-pick presets in local time.
+  const todayStr = new Date().toISOString().slice(0, 10);
+  const daysAgo = (n: number) => {
+    const d = new Date();
+    d.setUTCDate(d.getUTCDate() - n);
+    return d.toISOString().slice(0, 10);
+  };
+  const applyPreset = (preset: "today" | "7d" | "30d" | "all") => {
+    if (preset === "today") {
+      setFromDate(todayStr);
+      setToDate(todayStr);
+    } else if (preset === "7d") {
+      setFromDate(daysAgo(7));
+      setToDate(todayStr);
+    } else if (preset === "30d") {
+      setFromDate(daysAgo(30));
+      setToDate(todayStr);
+    } else {
+      setFromDate("");
+      setToDate("");
+    }
+  };
+
+  // When the user picks a specific run from the dropdown, narrow the filter to
+  // that run's date (scraped_at is timestamped at run start, so all records
+  // from one run share the same day; close enough for "filter by run").
+  const applyRunFilter = (runDate: string) => {
+    if (!runDate) {
+      setFromDate("");
+      setToDate("");
+      return;
+    }
+    setFromDate(runDate);
+    setToDate(runDate);
+  };
+
+  // Runs that actually added records, for the filter dropdown.
+  const filterableRuns = runs.filter(
+    (r) => r.articlesAdded !== null && (r.articlesAdded ?? 0) > 0,
+  );
 
   const load = useCallback(async () => {
     try {
@@ -91,10 +149,20 @@ export function ArticlesPreview({ refreshSignal }: { refreshSignal: number }) {
     load();
   }, [load, refreshSignal]);
 
-  const txCount = (articles ?? []).filter(isTransaction).length;
-  const devCount = (articles ?? []).length - txCount;
+  // Apply date filter to the *base* set so tab counts reflect what's
+  // visible under the current filter.
+  const dateFiltered = (articles ?? []).filter((a) => {
+    if (!fromDate && !toDate) return true;
+    const d = (a.scraped_at || "").slice(0, 10);
+    if (fromDate && d < fromDate) return false;
+    if (toDate && d > toDate) return false;
+    return true;
+  });
 
-  const filtered = (articles ?? []).filter((a) =>
+  const txCount = dateFiltered.filter(isTransaction).length;
+  const devCount = dateFiltered.length - txCount;
+
+  const filtered = dateFiltered.filter((a) =>
     tab === "transaction" ? isTransaction(a) : !isTransaction(a),
   );
   const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
@@ -154,7 +222,9 @@ export function ArticlesPreview({ refreshSignal }: { refreshSignal: number }) {
       "notes",
     ];
     const rows: (string | number | null | undefined)[][] = [header];
-    for (const a of articles ?? []) {
+    // 'All' button respects the date filter (so users can export a slice
+    // across both tabs without re-filtering elsewhere).
+    for (const a of dateFiltered) {
       rows.push([
         a.url, a.scraped_at, a.article_type,
         a.address, a.street_address, a.neighborhood, a.borough,
@@ -173,7 +243,78 @@ export function ArticlesPreview({ refreshSignal }: { refreshSignal: number }) {
       <div className="flex items-baseline justify-between mb-3">
         <h2 className="text-lg font-semibold">Articles</h2>
         {total !== null && (
-          <span className="text-sm text-neutral-400">{total.toLocaleString()} total</span>
+          <span className="text-sm text-neutral-400">
+            {dateFiltered.length.toLocaleString()}
+            {(fromDate || toDate) && ` of ${total.toLocaleString()}`}
+            {!fromDate && !toDate && " total"}
+          </span>
+        )}
+      </div>
+
+      {/* Filter bar */}
+      <div className="flex flex-wrap items-center gap-2 mb-4 text-xs">
+        <span className="text-neutral-500">Filter:</span>
+        <input
+          type="date"
+          value={fromDate}
+          onChange={(e) => setFromDate(e.target.value)}
+          className="bg-neutral-950 border border-neutral-800 rounded px-2 py-1 text-neutral-300"
+          aria-label="From date"
+        />
+        <span className="text-neutral-600">→</span>
+        <input
+          type="date"
+          value={toDate}
+          onChange={(e) => setToDate(e.target.value)}
+          className="bg-neutral-950 border border-neutral-800 rounded px-2 py-1 text-neutral-300"
+          aria-label="To date"
+        />
+        <button
+          onClick={() => applyPreset("today")}
+          className="px-2 py-1 rounded border border-neutral-800 text-neutral-400 hover:text-white hover:border-neutral-600"
+        >
+          Today
+        </button>
+        <button
+          onClick={() => applyPreset("7d")}
+          className="px-2 py-1 rounded border border-neutral-800 text-neutral-400 hover:text-white hover:border-neutral-600"
+        >
+          Last 7 days
+        </button>
+        <button
+          onClick={() => applyPreset("30d")}
+          className="px-2 py-1 rounded border border-neutral-800 text-neutral-400 hover:text-white hover:border-neutral-600"
+        >
+          Last 30 days
+        </button>
+        {(fromDate || toDate) && (
+          <button
+            onClick={() => applyPreset("all")}
+            className="px-2 py-1 rounded border border-amber-500/40 text-amber-300 hover:text-white hover:border-amber-500"
+          >
+            Clear ×
+          </button>
+        )}
+        {filterableRuns.length > 0 && (
+          <label className="flex items-center gap-1 text-neutral-500 ml-2">
+            <span>or scrape run:</span>
+            <select
+              onChange={(e) => applyRunFilter(e.target.value)}
+              value={fromDate && fromDate === toDate ? fromDate : ""}
+              className="bg-neutral-950 border border-neutral-800 rounded px-2 py-1 text-neutral-300"
+              aria-label="Filter by scrape run"
+            >
+              <option value="">— pick a run —</option>
+              {filterableRuns.map((r) => {
+                const d = (r.createdAt || "").slice(0, 10);
+                return (
+                  <option key={r.id} value={d}>
+                    {d} · +{r.articlesAdded} {r.event === "schedule" ? "(daily)" : "(manual)"}
+                  </option>
+                );
+              })}
+            </select>
+          </label>
         )}
       </div>
 
