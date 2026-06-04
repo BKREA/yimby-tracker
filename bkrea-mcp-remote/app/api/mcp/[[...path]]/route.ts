@@ -80,11 +80,20 @@ function wellKnownAuthServer() {
 function wellKnownResource() {
   return j({ resource: PROXY, authorization_servers: [PROXY], bearer_methods_supported: ["header"] });
 }
-function registerClient() {
-  // We don't track clients; accept any registration and echo a client_id.
+async function registerClient(req: Request) {
+  // We don't track clients; accept any registration, echo what was sent (RFC 7591).
+  const body = await req.json().catch(() => ({})) as Record<string, unknown>;
   const id = "bkrea_" + crypto.randomBytes(12).toString("hex");
-  return j({ client_id: id, token_endpoint_auth_method: "none",
-    grant_types: ["authorization_code", "refresh_token"], response_types: ["code"] });
+  return j({
+    client_id: id,
+    client_id_issued_at: nowSec(),
+    redirect_uris: body.redirect_uris ?? [],
+    client_name: body.client_name ?? "Claude",
+    grant_types: body.grant_types ?? ["authorization_code", "refresh_token"],
+    response_types: body.response_types ?? ["code"],
+    token_endpoint_auth_method: "none",
+    scope: body.scope ?? "mcp",
+  }, 201);
 }
 
 const esc = (s: string) => s.replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;");
@@ -376,7 +385,7 @@ export async function POST(req: Request): Promise<Response> {
   const s = sp(req);
   if (s === "oauth/authorize") return handleAuthorize(req);
   if (s === "oauth/token")     return handleToken(req);
-  if (s === "oauth/register")  return registerClient();
+  if (s === "oauth/register")  return registerClient(req);
   return handleMcp(req); // bare /api/mcp
 }
 
