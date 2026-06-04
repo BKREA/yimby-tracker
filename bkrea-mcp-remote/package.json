@@ -7,8 +7,7 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "typecheck": "tsc --noEmit",
-    "get-token": "node scripts/get-refresh-token.mjs"
+    "typecheck": "tsc --noEmit"
   },
   "engines": { "node": ">=20" },
   "dependencies": {

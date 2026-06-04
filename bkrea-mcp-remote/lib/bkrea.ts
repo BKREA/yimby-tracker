@@ -2,13 +2,12 @@
  * BKREA tool registration for the remote (HTTP) MCP server.
  *
  * Auth model (headless, no interactive login):
- *   - The server holds seth@bkrea.com's Supabase refresh token in
- *     SUPABASE_REFRESH_TOKEN. Each request exchanges it for a short-lived
- *     access token and creates a Supabase client scoped with that JWT, so RLS
- *     applies exactly as it would for seth in the app.
- *   - Refresh-token rotation is handled in-memory within a warm instance; for
- *     reliability across cold starts, DISABLE refresh-token rotation in
- *     Supabase (Authentication → Sessions) — see README.
+ *   - The server signs in as seth@bkrea.com using Supabase's PASSWORD grant
+ *     with BKREA_EMAIL / BKREA_PASSWORD from env, caches the short-lived access
+ *     token, and re-mints it when it expires. Each request gets a Supabase
+ *     client scoped with that JWT, so RLS applies exactly as it would in the app.
+ *   - Password grant means no refresh-token rotation problems and no Supabase
+ *     dashboard changes — ideal for a Lovable-managed backend.
  */
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import { z } from "zod";
@@ -41,38 +40,36 @@ const nowSec = () => Math.floor(Date.now() / 1000);
 const log = (...a: unknown[]) => console.error("[bkrea-mcp]", ...a);
 
 // ── Token / client ──────────────────────────────────────────────────────────
-let tokenCache: { access: string; exp: number; refresh: string; userId: string } | null = null;
+let tokenCache: { access: string; exp: number; userId: string } | null = null;
 
 async function getAccess(): Promise<{ token: string; userId: string }> {
   if (tokenCache && tokenCache.exp - nowSec() > 60) {
     return { token: tokenCache.access, userId: tokenCache.userId };
   }
-  const refresh = tokenCache?.refresh ?? process.env.SUPABASE_REFRESH_TOKEN;
-  if (!refresh) throw new Error("Server misconfigured: SUPABASE_REFRESH_TOKEN is not set.");
-  const r = await fetch(`${SUPABASE_URL}/auth/v1/token?grant_type=refresh_token`, {
+  const email = (process.env.BKREA_EMAIL ?? ALLOWED_EMAIL).toLowerCase();
+  const password = process.env.BKREA_PASSWORD;
+  if (!password) throw new Error("Server misconfigured: BKREA_PASSWORD is not set.");
+  const r = await fetch(`${SUPABASE_URL}/auth/v1/token?grant_type=password`, {
     method: "POST",
     headers: { "Content-Type": "application/json", apikey: SUPABASE_ANON_KEY },
-    body: JSON.stringify({ refresh_token: refresh }),
+    body: JSON.stringify({ email, password }),
   });
   if (!r.ok) {
-    throw new Error(
-      `Supabase auth refresh failed (${r.status}). The SUPABASE_REFRESH_TOKEN is likely stale — regenerate it (npm run get-token) or disable refresh-token rotation in Supabase.`,
-    );
+    const body = await r.text().catch(() => "");
+    throw new Error(`Supabase sign-in failed (${r.status}). Check BKREA_EMAIL/BKREA_PASSWORD. ${body.slice(0, 160)}`);
   }
   const d = (await r.json()) as {
     access_token: string;
-    refresh_token?: string;
     expires_in?: number;
     user?: { id: string; email: string };
   };
-  const email = (d.user?.email ?? "").toLowerCase();
-  if (email && email !== ALLOWED_EMAIL) {
-    throw new Error(`Refresh token belongs to ${email}, not ${ALLOWED_EMAIL}.`);
+  const gotEmail = (d.user?.email ?? "").toLowerCase();
+  if (gotEmail && gotEmail !== ALLOWED_EMAIL) {
+    throw new Error(`Signed in as ${gotEmail}, not ${ALLOWED_EMAIL}.`);
   }
   tokenCache = {
     access: d.access_token,
     exp: nowSec() + (d.expires_in ?? 3600),
-    refresh: d.refresh_token ?? refresh,
     userId: d.user?.id ?? tokenCache?.userId ?? "",
   };
   return { token: tokenCache.access, userId: tokenCache.userId };

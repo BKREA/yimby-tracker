@@ -7,44 +7,39 @@ over **Streamable HTTP**, so it can be added to **Claude.ai on the web** as a
 
 - Endpoint: `https://<your-deployment>/api/mcp`
 - Auth to the connector: a shared secret (`?key=` or `Authorization: Bearer`)
-- Auth to Supabase: a stored refresh token for `seth@bkrea.com` → RLS applies as you
+- Auth to Supabase: **email + password grant** for `seth@bkrea.com` (stored in
+  env) → the server mints a fresh JWT per request, so RLS applies as you. No
+  refresh-token rotation, no Supabase dashboard changes — works with a
+  Lovable-managed backend.
 - Same 14 read tools + 3 write tools (gated by `BKREA_ENABLE_WRITES=1`)
 
 ## Deploy (Vercel)
 
-### 1. Get your Supabase refresh token (one time)
+### 1. Pick a connector secret
+
+Any long random string, e.g. `openssl rand -hex 24`.
+
+### 2. Deploy
 
 ```bash
 cd bkrea-mcp-remote
 npm install
-npm run get-token      # opens browser → Google sign-in → prints SUPABASE_REFRESH_TOKEN=...
-```
-
-> **Disable refresh-token rotation** so the stored token stays valid across
-> serverless cold starts: Supabase dashboard → **Authentication → Sessions →
-> turn off "Refresh Token Rotation"** (or "Detect session in URL"/rotation
-> setting). Without this you'll need to re-run `get-token` periodically.
-
-### 2. Pick a connector secret
-
-Any long random string, e.g. `openssl rand -hex 24`.
-
-### 3. Deploy
-
-```bash
 npm i -g vercel        # if needed
 vercel                 # link/create the project (root = this folder)
 # set env vars:
-vercel env add SUPABASE_REFRESH_TOKEN     # paste from step 1
-vercel env add MCP_SHARED_SECRET          # paste from step 2
-vercel env add BKREA_ENABLE_WRITES        # "1" to allow writes, else skip
+vercel env add BKREA_EMAIL            # seth@bkrea.com
+vercel env add BKREA_PASSWORD         # your BKREA app password
+vercel env add MCP_SHARED_SECRET      # the secret from step 1
+vercel env add BKREA_ENABLE_WRITES    # "1" to allow writes, else skip
 vercel --prod          # deploy
 ```
 
-(Or do it in the Vercel dashboard: import the folder as a project, add the three
-env vars, deploy.)
+(Or in the Vercel dashboard: import the folder as a project, add those env
+vars, deploy.)
 
-### 4. Add to Claude.ai as a custom connector
+> Store `BKREA_PASSWORD` only as a Vercel environment variable — never commit it.
+
+### 3. Add to Claude.ai as a custom connector
 
 In Claude.ai → **Settings → Connectors → Add custom connector** (org connectors
 are added by an admin), set the URL to:
@@ -58,7 +53,7 @@ Then open the **Ask BKREA** project → the tools appear under connected tools.
 ## Local dev
 
 ```bash
-SUPABASE_REFRESH_TOKEN=... MCP_SHARED_SECRET=dev BKREA_ENABLE_WRITES=1 npm run dev
+BKREA_EMAIL=seth@bkrea.com BKREA_PASSWORD=... MCP_SHARED_SECRET=dev BKREA_ENABLE_WRITES=1 npm run dev
 # test:
 curl -s -X POST "http://localhost:3000/api/mcp?key=dev" \
   -H "Content-Type: application/json" -H "Accept: application/json, text/event-stream" \
