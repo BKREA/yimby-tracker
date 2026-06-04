@@ -101,13 +101,16 @@ async function handleAuthorize(req: Request): Promise<Response> {
     state:          p.get("state") ?? "",
   });
 
-  // Send the user to the BKREA app's auth page with our callback as redirect_to.
-  // Use a client-side JS redirect (not a 302) so popup windows follow it correctly.
-  const bkreaAuth = new URL("https://ai.agent.bkrea.xyz/auth");
-  bkreaAuth.searchParams.set("redirect_to", GOOGLE_CB);
-  bkreaAuth.searchParams.set("next", encoded);
+  // Go directly to Supabase Google OAuth — bypass the BKREA React app which
+  // ignores our redirect_to param and sends tokens to itself. Supabase will
+  // redirect to GOOGLE_CB after auth (requires GOOGLE_CB to be in Supabase's
+  // allowed redirect URLs — add via Lovable → Project Settings → Auth).
+  const googleAuth = new URL(`${SUPABASE}/auth/v1/authorize`);
+  googleAuth.searchParams.set("provider", "google");
+  googleAuth.searchParams.set("redirect_to", GOOGLE_CB);
+  googleAuth.searchParams.set("state", encoded); // Supabase passes state through untouched
 
-  const dest = esc(bkreaAuth.toString());
+  const dest = esc(googleAuth.toString());
   return new Response(`<!doctype html><html><head><meta charset="UTF-8">
 <meta http-equiv="refresh" content="0;url=${dest}">
 <title>Redirecting to BKREA…</title>
