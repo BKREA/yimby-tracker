@@ -89,10 +89,15 @@ export function ArticlesPreview({ refreshSignal, runs }: Props) {
   // Filters
   const [fromDate, _setFromDate] = useState<string>("");  // YYYY-MM-DD or ""
   const [toDate, _setToDate] = useState<string>("");
+  const [query, _setQuery] = useState<string>("");
 
   // Reset to page 0 whenever the visible slice would change underneath us.
   const setTab = (t: "development" | "transaction") => {
     _setTab(t);
+    setPage(0);
+  };
+  const setQuery = (s: string) => {
+    _setQuery(s);
     setPage(0);
   };
   const setPageSize = (n: number) => {
@@ -169,9 +174,20 @@ export function ArticlesPreview({ refreshSignal, runs }: Props) {
     load();
   }, [load, refreshSignal]);
 
-  // Apply date filter to the *base* set so tab counts reflect what's
-  // visible under the current filter.
+  // Apply date + text filters to the *base* set so tab counts reflect what's
+  // visible under the current filters.
+  const needle = query.trim().toLowerCase();
+  const matchesQuery = (a: Article): boolean => {
+    if (!needle) return true;
+    const hay = [
+      a.address, a.street_address, a.neighborhood, a.borough, a.type,
+      a.developer, a.architect, a.buyer, a.seller, a.brokers,
+      a.article_type, a.notes, a.url,
+    ].filter(Boolean).join(" ").toLowerCase();
+    return hay.includes(needle);
+  };
   const dateFiltered = (articles ?? []).filter((a) => {
+    if (!matchesQuery(a)) return false;
     if (!fromDate && !toDate) return true;
     const d = (a.scraped_at || "").slice(0, 10);
     if (fromDate && d < fromDate) return false;
@@ -265,10 +281,21 @@ export function ArticlesPreview({ refreshSignal, runs }: Props) {
         {total !== null && (
           <span className="text-sm text-neutral-400">
             {dateFiltered.length.toLocaleString()}
-            {(fromDate || toDate) && ` of ${total.toLocaleString()}`}
-            {!fromDate && !toDate && " total"}
+            {(fromDate || toDate || needle) && ` of ${total.toLocaleString()}`}
+            {!fromDate && !toDate && !needle && " total"}
           </span>
         )}
+      </div>
+
+      {/* Search */}
+      <div className="mb-3">
+        <input
+          type="text"
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          placeholder="Search address, developer, architect, neighborhood, buyer/seller…"
+          className="w-full rounded-md bg-neutral-950 border border-neutral-800 px-3 py-2 text-sm text-neutral-100 placeholder-neutral-600 focus:outline-none focus:border-neutral-600"
+        />
       </div>
 
       {/* Filter bar */}
