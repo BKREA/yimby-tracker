@@ -1,5 +1,7 @@
-import { ResearchPanel } from "@/components/ResearchPanel";
+import { redirect } from "next/navigation";
 
-export default function ResearchPage() {
-  return <ResearchPanel />;
+// Tabs are now client-side on the index page; keep this path working as a
+// deep link by redirecting to the corresponding tab.
+export default function ResearchRedirect() {
+  redirect("/#research");
 }

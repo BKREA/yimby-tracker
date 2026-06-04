@@ -1,6 +1,5 @@
 import { requireUser, signOut } from "@/lib/auth";
 import { redirect } from "next/navigation";
-import { NavTabs } from "@/components/NavTabs";
 
 export default async function AppLayout({ children }: { children: React.ReactNode }) {
   const session = await requireUser();
@@ -24,7 +23,6 @@ export default async function AppLayout({ children }: { children: React.ReactNod
           </form>
         </div>
       </header>
-      <NavTabs />
       {children}
     </main>
   );

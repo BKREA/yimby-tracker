@@ -1,5 +1,7 @@
-import { PropertiesPanel } from "@/components/PropertiesPanel";
+import { redirect } from "next/navigation";
 
-export default function PropertiesPage() {
-  return <PropertiesPanel />;
+// Tabs are now client-side on the index page; keep this path working as a
+// deep link by redirecting to the corresponding tab.
+export default function PropertiesRedirect() {
+  redirect("/#properties");
 }
