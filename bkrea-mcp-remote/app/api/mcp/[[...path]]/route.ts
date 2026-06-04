@@ -86,7 +86,10 @@ svg{width:20px;height:20px;flex-shrink:0}
 </div></body></html>`, { headers: { "Content-Type": "text/html; charset=utf-8" } });
 }
 
-// ── /oauth/authorize — show Google sign-in button ──────────────────────────
+// ── /oauth/authorize — redirect to BKREA app login ─────────────────────────
+// If the user is already signed in at ai.agent.bkrea.xyz, Supabase picks up
+// the session and redirects straight to our callback with their token.
+// If not, they see the normal BKREA login page — same result after signing in.
 async function handleAuthorize(req: Request): Promise<Response> {
   const p = new URL(req.url).searchParams;
   const encoded = encState({
@@ -98,14 +101,13 @@ async function handleAuthorize(req: Request): Promise<Response> {
     state:          p.get("state") ?? "",
   });
 
-  // Supabase passes `state` through Google OAuth untouched — we piggyback our
-  // MCP params on it so they survive the round-trip.
-  const googleUrl = new URL(`${SUPABASE}/auth/v1/authorize`);
-  googleUrl.searchParams.set("provider", "google");
-  googleUrl.searchParams.set("redirect_to", GOOGLE_CB);
-  googleUrl.searchParams.set("state", encoded);
+  // Send the user to the BKREA app's auth page with our callback as redirect_to.
+  // The MCP state is encoded in the `next` param so it survives the round-trip.
+  const bkreaAuth = new URL("https://ai.agent.bkrea.xyz/auth");
+  bkreaAuth.searchParams.set("redirect_to", GOOGLE_CB);
+  bkreaAuth.searchParams.set("next", encoded);   // our state piggyback
 
-  return signInPage(googleUrl.toString());
+  return Response.redirect(bkreaAuth.toString(), 302);
 }
 
 // ── /oauth/google-callback — extract token from fragment, call finish ───────
@@ -120,7 +122,8 @@ display:flex;align-items:center;justify-content:center;height:100vh;margin:0}
 (function(){
   var frag = new URLSearchParams(location.hash.slice(1));
   var token = frag.get('access_token');
-  var state = new URLSearchParams(location.search).get('state') || frag.get('state') || '';
+  var qs = new URLSearchParams(location.search);
+  var state = qs.get('state') || qs.get('next') || frag.get('state') || frag.get('next') || '';
   if (!token) {
     document.getElementById('m').textContent = 'Sign-in failed — no token. Please close and try again.';
     return;
