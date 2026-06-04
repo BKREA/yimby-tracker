@@ -102,12 +102,22 @@ async function handleAuthorize(req: Request): Promise<Response> {
   });
 
   // Send the user to the BKREA app's auth page with our callback as redirect_to.
-  // The MCP state is encoded in the `next` param so it survives the round-trip.
+  // Use a client-side JS redirect (not a 302) so popup windows follow it correctly.
   const bkreaAuth = new URL("https://ai.agent.bkrea.xyz/auth");
   bkreaAuth.searchParams.set("redirect_to", GOOGLE_CB);
-  bkreaAuth.searchParams.set("next", encoded);   // our state piggyback
+  bkreaAuth.searchParams.set("next", encoded);
 
-  return Response.redirect(bkreaAuth.toString(), 302);
+  const dest = esc(bkreaAuth.toString());
+  return new Response(`<!doctype html><html><head><meta charset="UTF-8">
+<meta http-equiv="refresh" content="0;url=${dest}">
+<title>Redirecting to BKREA…</title>
+<style>body{font:16px system-ui;background:#0d0d0d;color:#eee;display:flex;
+align-items:center;justify-content:center;height:100vh;margin:0;text-align:center}</style>
+</head><body>
+<div><p>Redirecting to BKREA…</p>
+<p style="margin-top:12px"><a href="${dest}" style="color:#60a5fa">Click here if not redirected</a></p></div>
+<script>window.location.replace("${dest}");</script>
+</body></html>`, { headers: { "Content-Type": "text/html; charset=utf-8" } });
 }
 
 // ── /oauth/google-callback — extract token from fragment, call finish ───────
