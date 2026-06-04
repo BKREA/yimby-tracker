@@ -72,6 +72,7 @@ interface LogEntry {
   user: string;
   count: number;
   inputs: string[];
+  runId?: string;
 }
 
 export function ResearchPanel() {
@@ -82,6 +83,26 @@ export function ResearchPanel() {
   const fileRef = useRef<HTMLInputElement>(null);
   const [history, setHistory] = useState<LogEntry[] | null>(null);
   const [showHistory, setShowHistory] = useState(false);
+  // Set when the displayed Results are a reloaded saved run (vs. a fresh search).
+  const [viewingSaved, setViewingSaved] = useState<LogEntry | null>(null);
+  const [loadingRun, setLoadingRun] = useState<string | null>(null);
+
+  const openRun = useCallback(async (entry: LogEntry) => {
+    if (!entry.runId) return;
+    setLoadingRun(entry.runId);
+    setError(null);
+    try {
+      const res = await fetch(`/api/research/run/${entry.runId}`);
+      const body = (await res.json()) as ApiResponse & { error?: string };
+      if (!res.ok) throw new Error(body.error ?? `HTTP ${res.status}`);
+      setData(body);
+      setViewingSaved(entry);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setLoadingRun(null);
+    }
+  }, []);
 
   const loadHistory = useCallback(async () => {
     try {
@@ -115,6 +136,7 @@ export function ResearchPanel() {
   const run = useCallback(async () => {
     setLoading(true);
     setError(null);
+    setViewingSaved(null);
     try {
       const res = await fetch("/api/research", {
         method: "POST",
@@ -238,23 +260,38 @@ export function ResearchPanel() {
             className="w-full flex items-center justify-between text-left"
           >
             <h2 className="text-lg font-semibold">
-              Search history
+              Past runs
               <span className="ml-2 text-sm font-normal text-neutral-400">{history.length} recent</span>
             </h2>
             <span className="text-neutral-500 text-sm">{showHistory ? "Hide ▾" : "Show ▸"}</span>
           </button>
           {showHistory && (
-            <ul className="mt-3 grid gap-2">
-              {history.map((h, i) => (
-                <li key={`${h.at}-${i}`} className="text-xs border-t border-neutral-800/70 pt-2 first:border-t-0 first:pt-0">
-                  <div className="flex flex-wrap gap-x-3 text-neutral-400">
-                    <span className="text-neutral-300">{new Date(h.at).toLocaleString()}</span>
-                    <span>{h.user}</span>
-                    <span className="text-neutral-500">{h.count} propert{h.count === 1 ? "y" : "ies"}</span>
-                  </div>
-                  <div className="text-neutral-500 mt-0.5 break-words">{h.inputs.join("  ·  ")}</div>
-                </li>
-              ))}
+            <ul className="mt-3 grid gap-1">
+              {history.map((h, i) => {
+                const reopenable = Boolean(h.runId);
+                return (
+                  <li key={`${h.at}-${i}`}>
+                    <button
+                      onClick={() => openRun(h)}
+                      disabled={!reopenable}
+                      title={reopenable ? "View saved results" : "Results were not saved for this run"}
+                      className={[
+                        "w-full text-left text-xs rounded-md px-2 py-2 border border-transparent",
+                        reopenable ? "hover:bg-neutral-800/60 hover:border-neutral-800 cursor-pointer" : "cursor-default opacity-70",
+                      ].join(" ")}
+                    >
+                      <div className="flex flex-wrap items-center gap-x-3 text-neutral-400">
+                        <span className="text-neutral-300">{new Date(h.at).toLocaleString()}</span>
+                        <span>{h.user}</span>
+                        <span className="text-neutral-500">{h.count} propert{h.count === 1 ? "y" : "ies"}</span>
+                        {loadingRun === h.runId && <span className="text-sky-400">loading…</span>}
+                        {reopenable && loadingRun !== h.runId && <span className="text-blue-400">view results →</span>}
+                      </div>
+                      <div className="text-neutral-500 mt-0.5 break-words">{h.inputs.join("  ·  ")}</div>
+                    </button>
+                  </li>
+                );
+              })}
             </ul>
           )}
         </section>
@@ -262,6 +299,15 @@ export function ResearchPanel() {
 
       {data && (
         <section className="border border-neutral-800 rounded-lg p-5 bg-neutral-900/40">
+          {viewingSaved && (
+            <div className="mb-4 flex flex-wrap items-center gap-2 text-xs rounded-md bg-sky-500/10 border border-sky-500/20 px-3 py-2">
+              <span className="text-sky-300">Saved run</span>
+              <span className="text-neutral-400">{new Date(viewingSaved.at).toLocaleString()} · {viewingSaved.user}</span>
+              <button onClick={() => { setData(null); setViewingSaved(null); }} className="ml-auto text-neutral-400 hover:text-white">
+                Close
+              </button>
+            </div>
+          )}
           <div className="flex flex-wrap items-baseline justify-between gap-2 mb-4">
             <h2 className="text-lg font-semibold">
               Results

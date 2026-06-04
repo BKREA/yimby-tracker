@@ -150,6 +150,7 @@ export interface ResearchLogEntry {
   user: string; // signed-in email
   count: number; // number of inputs submitted
   inputs: string[]; // the addresses / BBLs searched
+  runId?: string; // id of the saved full-results file, when persisted
 }
 
 interface ContentsResponse {
@@ -196,6 +197,41 @@ export async function appendResearchLog(entry: ResearchLogEntry): Promise<void> 
     throw new Error(`research-log write failed: ${putRes.status}`);
   }
   throw new Error("research-log write failed after retries");
+}
+
+/**
+ * Persist the full results of one research run to research_runs/<id>.json.
+ * Unique filename, so it's always a create (no SHA). Best-effort: no token →
+ * console log only.
+ */
+export async function saveResearchRun(runId: string, record: unknown): Promise<void> {
+  if (!process.env.GH_TOKEN) {
+    console.log("[research-run] (no token, not persisted)", runId);
+    return;
+  }
+  const res = await ghFetchAuthed(`/repos/${repoPath()}/contents/research_runs/${runId}.json`, {
+    method: "PUT",
+    body: JSON.stringify({
+      message: `chore: property-research run ${runId} [skip ci]`,
+      content: Buffer.from(JSON.stringify(record), "utf8").toString("base64"),
+      branch: "main",
+    }),
+  });
+  if (!res.ok) throw new Error(`research-run write failed: ${res.status}`);
+}
+
+/** Read one saved research run's full results, or null if missing. */
+export async function loadResearchRun(runId: string): Promise<unknown | null> {
+  // runId is a UUID we generated, but guard the path regardless.
+  const safe = runId.replace(/[^a-zA-Z0-9-]/g, "");
+  const res = await ghFetchRead(`/repos/${repoPath()}/contents/research_runs/${safe}.json?ref=main`);
+  if (!res.ok) return null;
+  const j = (await res.json()) as ContentsResponse;
+  try {
+    return JSON.parse(Buffer.from(j.content ?? "", "base64").toString("utf8"));
+  } catch {
+    return null;
+  }
 }
 
 /** Read the research audit log, newest first. */
