@@ -27,17 +27,16 @@ npm install
 npm i -g vercel        # if needed
 vercel                 # link/create the project (root = this folder)
 # set env vars:
-vercel env add BKREA_EMAIL            # seth@bkrea.com
-vercel env add BKREA_PASSWORD         # your BKREA app password
-vercel env add MCP_SHARED_SECRET      # the secret from step 1
-vercel env add BKREA_ENABLE_WRITES    # "1" to allow writes, else skip
+vercel env add TOKEN_SECRET           # `openssl rand -base64 48` — seals our OAuth tokens
+vercel env add BKREA_ENABLE_WRITES    # "1" to allow write tools, else skip
 vercel --prod          # deploy
 ```
 
 (Or in the Vercel dashboard: import the folder as a project, add those env
 vars, deploy.)
 
-> Store `BKREA_PASSWORD` only as a Vercel environment variable — never commit it.
+> Auth is per-user: each person signs in with their own BKREA email/password on
+> the connector's login page. No shared credentials are stored in the server.
 
 ### 3. Add to Claude.ai as a custom connector
 
@@ -53,11 +52,13 @@ Then open the **Ask BKREA** project → the tools appear under connected tools.
 ## Local dev
 
 ```bash
-BKREA_EMAIL=seth@bkrea.com BKREA_PASSWORD=... MCP_SHARED_SECRET=dev BKREA_ENABLE_WRITES=1 npm run dev
-# test:
-curl -s -X POST "http://localhost:3000/api/mcp?key=dev" \
-  -H "Content-Type: application/json" -H "Accept: application/json, text/event-stream" \
-  -d '{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}'
+TOKEN_SECRET=dev-secret BKREA_ENABLE_WRITES=1 npm run dev
+# OAuth discovery should return 200:
+curl -s http://localhost:3000/api/mcp/.well-known/oauth-authorization-server
+# an unauthenticated MCP call returns 401 + WWW-Authenticate (triggers sign-in):
+curl -si -X POST "http://localhost:3000/api/mcp" \
+  -H "Content-Type: application/json" \
+  -d '{"jsonrpc":"2.0","id":1,"method":"initialize"}'
 ```
 
 ## Auth & security notes
