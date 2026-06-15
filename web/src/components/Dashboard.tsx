@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { RunButtons } from "./RunButtons";
 import { RunsTable, type Run } from "./RunsTable";
-import { ArticlesPreview } from "./ArticlesPreview";
+import { ArticlesPreview, type RelatedNews } from "./ArticlesPreview";
 
 // Cadence chosen to be friendly to GitHub's API limits. /api/runs hits the
 // authenticated GitHub API (5000/hr) plus the raw URL (cached 60s server-side),
@@ -20,6 +20,7 @@ export default function Dashboard() {
   const [error, setError] = useState<string | null>(null);
   const [note, setNote] = useState<string | null>(null);
   const [refreshArticles, setRefreshArticles] = useState(0);
+  const [relatedNews, setRelatedNews] = useState<RelatedNews>({});
   // True from the moment we POST a dispatch until the new run shows up.
   const [pendingDispatch, setPendingDispatch] = useState<string | null>(null);
   const seenRunIdsRef = useRef<Set<number>>(new Set());
@@ -65,6 +66,23 @@ export default function Dashboard() {
     return () => clearInterval(interval);
   }, [loadRuns, runs, pendingDispatch]);
 
+  // Related news loads once on mount and again whenever articles refresh
+  // (a fresh enrichment workflow run will have updated the file).
+  useEffect(() => {
+    let cancelled = false;
+    fetch("/api/related-news")
+      .then((r) => (r.ok ? r.json() : { byAddress: {} }))
+      .then((d) => {
+        if (!cancelled) setRelatedNews(d.byAddress ?? {});
+      })
+      .catch(() => {
+        // Gracefully ignore — UI just won't show related counts.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [refreshArticles]);
+
   const activeRun = (runs ?? []).find(isActive) ?? null;
 
   return (
@@ -75,7 +93,11 @@ export default function Dashboard() {
         onDispatch={setPendingDispatch}
       />
       <RunsTable runs={runs} error={error} note={note} onCancelled={loadRuns} />
-      <ArticlesPreview refreshSignal={refreshArticles} runs={runs ?? []} />
+      <ArticlesPreview
+        refreshSignal={refreshArticles}
+        runs={runs ?? []}
+        relatedNews={relatedNews}
+      />
     </div>
   );
 }

@@ -51,6 +51,23 @@ USER_AGENT = (
 DELAY_BETWEEN_QUERIES_S = 1.0
 
 
+def _resolve_redirect(url: str) -> str:
+    """Follow the Google News redirect to the real article URL. Best-effort —
+    if the resolve fails, returns the original URL (still clickable, just uglier)."""
+    try:
+        req = urllib.request.Request(url, headers={"User-Agent": USER_AGENT}, method="HEAD")
+        with urllib.request.urlopen(req, timeout=10) as r:
+            return r.url
+    except Exception:
+        # Some redirects only work on GET. Try a tiny GET and read the final URL.
+        try:
+            req = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
+            with urllib.request.urlopen(req, timeout=10) as r:
+                return r.url
+        except Exception:
+            return url
+
+
 def _read_json(path: Path, default):
     if not path.exists() or path.stat().st_size == 0:
         return default
@@ -168,10 +185,13 @@ def fetch_news_for_address(address: str) -> list[dict]:
         # Title from Google News includes " - PublisherName" suffix; strip it.
         title = (entry.get("title") or "").strip()
         title = re.sub(rf"\s*[-–]\s*{re.escape(source)}\s*$", "", title) if source else title
+        # Resolve Google News redirect to the actual article URL — makes the
+        # link previewable in browsers and surfaces the real domain to users.
+        final_url = _resolve_redirect(link)
         results.append({
             "address": address,
             "title": title,
-            "url": link,
+            "url": final_url,
             "source": source,
             "published": pub,
             "snippet": _strip_html(entry.get("summary") or ""),

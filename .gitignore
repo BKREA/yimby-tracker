@@ -6,3 +6,8 @@ service-account.json
 *.local.json
 .DS_Store
 /tmp/
+/contact-enricher/
+/bkrea-mcp-remote/
+/bkrea-mcp/
+research_log.jsonl
+research_runs/

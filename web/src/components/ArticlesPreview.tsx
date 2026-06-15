@@ -74,12 +74,24 @@ function stageLabel(t?: string): string {
   return (t && STAGE_LABEL[t]) || "—";
 }
 
+export interface RelatedRecord {
+  address: string;
+  title: string;
+  url: string;
+  source: string;
+  published: string;
+  snippet: string;
+}
+
+export type RelatedNews = Record<string, RelatedRecord[]>;
+
 interface Props {
   refreshSignal: number;
   runs: Run[];
+  relatedNews?: RelatedNews;
 }
 
-export function ArticlesPreview({ refreshSignal, runs }: Props) {
+export function ArticlesPreview({ refreshSignal, runs, relatedNews = {} }: Props) {
   const [articles, setArticles] = useState<Article[] | null>(null);
   const [total, setTotal] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -90,6 +102,8 @@ export function ArticlesPreview({ refreshSignal, runs }: Props) {
   const [fromDate, _setFromDate] = useState<string>("");  // YYYY-MM-DD or ""
   const [toDate, _setToDate] = useState<string>("");
   const [query, _setQuery] = useState<string>("");
+  // Which row's "Related" panel is expanded.
+  const [expandedUrl, setExpandedUrl] = useState<string | null>(null);
 
   // Reset to page 0 whenever the visible slice would change underneath us.
   const setTab = (t: "development" | "transaction") => {
@@ -440,36 +454,80 @@ export function ArticlesPreview({ refreshSignal, runs }: Props) {
                 <th className="py-1.5 pr-3 font-normal">Sq ft</th>
                 <th className="py-1.5 pr-3 font-normal">Developer</th>
                 <th className="py-1.5 pr-3 font-normal">Architect</th>
+                <th className="py-1.5 pr-3 font-normal">Related</th>
                 <th className="py-1.5 font-normal"></th>
               </tr>
             </thead>
             <tbody>
-              {visible.map((a) => (
-                <tr key={a.url} className="border-t border-neutral-800 align-top">
-                  <td className="py-2 pr-3 text-neutral-400 whitespace-nowrap">{(a.scraped_at || "").slice(0, 10) || "—"}</td>
-                  <td className="py-2 pr-3">{blank(a.address)}</td>
-                  <td className="py-2 pr-3 text-neutral-300">{blank(a.borough)}</td>
-                  <td className="py-2 pr-3 text-neutral-300">{blank(a.neighborhood)}</td>
-                  <td className="py-2 pr-3 text-neutral-300">{blank(a.type)}</td>
-                  <td className="py-2 pr-3 text-neutral-300">{fmtNum(a.number_of_units)}</td>
-                  <td className={`py-2 pr-3 ${a.article_type === "construction_update" ? "text-amber-300" : "text-neutral-400"}`}>
-                    {stageLabel(a.article_type)}
-                  </td>
-                  <td className="py-2 pr-3 text-neutral-300">{fmtNum(a.square_footage)}</td>
-                  <td className="py-2 pr-3 text-neutral-300">{blank(a.developer)}</td>
-                  <td className="py-2 pr-3 text-neutral-300">{blank(a.architect)}</td>
-                  <td className="py-2">
-                    <a
-                      href={a.url}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="text-sky-400 hover:underline"
-                    >
-                      article ↗
-                    </a>
-                  </td>
-                </tr>
-              ))}
+              {visible.flatMap((a) => {
+                const related = (a.address && relatedNews[a.address]) || [];
+                const isOpen = expandedUrl === a.url;
+                return [
+                  <tr key={a.url} className="border-t border-neutral-800 align-top">
+                    <td className="py-2 pr-3 text-neutral-400 whitespace-nowrap">{(a.scraped_at || "").slice(0, 10) || "—"}</td>
+                    <td className="py-2 pr-3">{blank(a.address)}</td>
+                    <td className="py-2 pr-3 text-neutral-300">{blank(a.borough)}</td>
+                    <td className="py-2 pr-3 text-neutral-300">{blank(a.neighborhood)}</td>
+                    <td className="py-2 pr-3 text-neutral-300">{blank(a.type)}</td>
+                    <td className="py-2 pr-3 text-neutral-300">{fmtNum(a.number_of_units)}</td>
+                    <td className={`py-2 pr-3 ${a.article_type === "construction_update" ? "text-amber-300" : "text-neutral-400"}`}>
+                      {stageLabel(a.article_type)}
+                    </td>
+                    <td className="py-2 pr-3 text-neutral-300">{fmtNum(a.square_footage)}</td>
+                    <td className="py-2 pr-3 text-neutral-300">{blank(a.developer)}</td>
+                    <td className="py-2 pr-3 text-neutral-300">{blank(a.architect)}</td>
+                    <td className="py-2 pr-3">
+                      {related.length > 0 ? (
+                        <button
+                          onClick={() => setExpandedUrl(isOpen ? null : a.url)}
+                          className="text-sky-400 hover:underline text-xs"
+                        >
+                          {isOpen ? `Hide ${related.length}` : `${related.length} ↗`}
+                        </button>
+                      ) : (
+                        <span className="text-neutral-600 text-xs">—</span>
+                      )}
+                    </td>
+                    <td className="py-2">
+                      <a
+                        href={a.url}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="text-sky-400 hover:underline"
+                      >
+                        article ↗
+                      </a>
+                    </td>
+                  </tr>,
+                  isOpen && related.length > 0 ? (
+                    <tr key={`${a.url}::related`} className="bg-neutral-950/50">
+                      <td colSpan={12} className="px-3 py-3">
+                        <p className="text-xs text-neutral-500 mb-2">
+                          Related coverage of {a.address} ({related.length})
+                        </p>
+                        <ul className="space-y-1.5">
+                          {related.map((r, i) => (
+                            <li key={`${r.url}-${i}`} className="text-sm">
+                              <a
+                                href={r.url}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="text-sky-400 hover:underline"
+                              >
+                                {r.title}
+                              </a>
+                              <span className="text-neutral-500 ml-2 text-xs">
+                                {r.source}
+                                {r.published && ` · ${r.published.slice(0, 10)}`}
+                              </span>
+                            </li>
+                          ))}
+                        </ul>
+                      </td>
+                    </tr>
+                  ) : null,
+                ];
+              })}
             </tbody>
           </table>
         </div>
@@ -492,33 +550,77 @@ export function ArticlesPreview({ refreshSignal, runs }: Props) {
                   <th className="py-1.5 pr-3 font-normal">Seller</th>
                   <th className="py-1.5 pr-3 font-normal">Brokers</th>
                   <th className="py-1.5 pr-3 font-normal">Tx Date</th>
+                  <th className="py-1.5 pr-3 font-normal">Related</th>
                   <th className="py-1.5 font-normal"></th>
                 </tr>
               </thead>
               <tbody>
-                {visible.map((a) => (
-                  <tr key={a.url} className="border-t border-neutral-800 align-top">
-                    <td className="py-2 pr-3 text-neutral-400 whitespace-nowrap">{(a.scraped_at || "").slice(0, 10) || "—"}</td>
-                    <td className="py-2 pr-3">{blank(a.address)}</td>
-                    <td className="py-2 pr-3 text-neutral-300">{fmtMoney(a.transaction_amount)}</td>
-                    <td className="py-2 pr-3 text-neutral-300">{fmtMoney(a.price_per_unit)}</td>
-                    <td className="py-2 pr-3 text-neutral-300">{fmtMoney(a.price_per_square_foot)}</td>
-                    <td className="py-2 pr-3 text-neutral-300">{blank(a.buyer)}</td>
-                    <td className="py-2 pr-3 text-neutral-300">{blank(a.seller)}</td>
-                    <td className="py-2 pr-3 text-neutral-300">{blank(a.brokers)}</td>
-                    <td className="py-2 pr-3 text-neutral-300">{blank(a.date_of_transaction)}</td>
-                    <td className="py-2">
-                      <a
-                        href={a.url}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="text-sky-400 hover:underline"
-                      >
-                        article ↗
-                      </a>
-                    </td>
-                  </tr>
-                ))}
+                {visible.flatMap((a) => {
+                  const related = (a.address && relatedNews[a.address]) || [];
+                  const isOpen = expandedUrl === a.url;
+                  return [
+                    <tr key={a.url} className="border-t border-neutral-800 align-top">
+                      <td className="py-2 pr-3 text-neutral-400 whitespace-nowrap">{(a.scraped_at || "").slice(0, 10) || "—"}</td>
+                      <td className="py-2 pr-3">{blank(a.address)}</td>
+                      <td className="py-2 pr-3 text-neutral-300">{fmtMoney(a.transaction_amount)}</td>
+                      <td className="py-2 pr-3 text-neutral-300">{fmtMoney(a.price_per_unit)}</td>
+                      <td className="py-2 pr-3 text-neutral-300">{fmtMoney(a.price_per_square_foot)}</td>
+                      <td className="py-2 pr-3 text-neutral-300">{blank(a.buyer)}</td>
+                      <td className="py-2 pr-3 text-neutral-300">{blank(a.seller)}</td>
+                      <td className="py-2 pr-3 text-neutral-300">{blank(a.brokers)}</td>
+                      <td className="py-2 pr-3 text-neutral-300">{blank(a.date_of_transaction)}</td>
+                      <td className="py-2 pr-3">
+                        {related.length > 0 ? (
+                          <button
+                            onClick={() => setExpandedUrl(isOpen ? null : a.url)}
+                            className="text-sky-400 hover:underline text-xs"
+                          >
+                            {isOpen ? `Hide ${related.length}` : `${related.length} ↗`}
+                          </button>
+                        ) : (
+                          <span className="text-neutral-600 text-xs">—</span>
+                        )}
+                      </td>
+                      <td className="py-2">
+                        <a
+                          href={a.url}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="text-sky-400 hover:underline"
+                        >
+                          article ↗
+                        </a>
+                      </td>
+                    </tr>,
+                    isOpen && related.length > 0 ? (
+                      <tr key={`${a.url}::related`} className="bg-neutral-950/50">
+                        <td colSpan={11} className="px-3 py-3">
+                          <p className="text-xs text-neutral-500 mb-2">
+                            Related coverage of {a.address} ({related.length})
+                          </p>
+                          <ul className="space-y-1.5">
+                            {related.map((r, i) => (
+                              <li key={`${r.url}-${i}`} className="text-sm">
+                                <a
+                                  href={r.url}
+                                  target="_blank"
+                                  rel="noreferrer"
+                                  className="text-sky-400 hover:underline"
+                                >
+                                  {r.title}
+                                </a>
+                                <span className="text-neutral-500 ml-2 text-xs">
+                                  {r.source}
+                                  {r.published && ` · ${r.published.slice(0, 10)}`}
+                                </span>
+                              </li>
+                            ))}
+                          </ul>
+                        </td>
+                      </tr>
+                    ) : null,
+                  ];
+                })}
               </tbody>
             </table>
           )}
