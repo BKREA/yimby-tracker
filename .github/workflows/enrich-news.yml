@@ -14,6 +14,10 @@ on:
         description: "Cap at N addresses (smoke test)"
         required: false
         default: ""
+      sources:
+        description: "Comma-separated: google,gdelt (default: both)"
+        required: false
+        default: "google,gdelt"
 
 permissions:
   contents: write
@@ -21,7 +25,7 @@ permissions:
 jobs:
   enrich:
     runs-on: ubuntu-latest
-    timeout-minutes: 90
+    timeout-minutes: 240   # ~1,200 addresses × ~7s/address ≈ 2.4h (Google + GDELT)
     steps:
       - uses: actions/checkout@v4
 
@@ -44,6 +48,9 @@ jobs:
           fi
           if [ -n "${{ inputs.limit }}" ]; then
             ARGS="$ARGS --limit ${{ inputs.limit }}"
+          fi
+          if [ -n "${{ inputs.sources }}" ]; then
+            ARGS="$ARGS --sources ${{ inputs.sources }}"
           fi
           python enrich_news.py $ARGS
 

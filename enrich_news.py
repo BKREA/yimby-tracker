@@ -50,6 +50,13 @@ USER_AGENT = (
 
 DELAY_BETWEEN_QUERIES_S = 1.0
 
+# GDELT enforces 1 req per 5 seconds. We pause this long before each GDELT
+# query to stay well clear.
+GDELT_DELAY_S = 6.0
+
+# GDELT 2.0 data starts ~Feb 2015. Set 2015-01-01 as the effective floor.
+GDELT_START = "20150101000000"
+
 
 def _resolve_redirect(url: str) -> str:
     """Follow the Google News redirect to the real article URL. Best-effort —
@@ -147,6 +154,60 @@ def collect_addresses(articles: list[dict], since_days: int | None = None) -> li
     return addresses
 
 
+def fetch_gdelt_for_address(address: str) -> list[dict]:
+    """Query GDELT 2.0 DOC API for an address. Returns up to ~250 article records.
+
+    Coverage: ~Feb 2015 to today (GDELT 2.0 doesn't go further back). Free, no
+    API key. Rate-limited to 1 req/5s so we sleep before each call.
+    """
+    time.sleep(GDELT_DELAY_S)
+    now = datetime.now(timezone.utc).strftime("%Y%m%d%H%M%S")
+    qs = urllib.parse.urlencode({
+        "query": f'"{address}" "New York"',
+        "mode": "ArtList",
+        "format": "json",
+        "maxrecords": "250",
+        "sort": "DateDesc",
+        "startdatetime": GDELT_START,
+        "enddatetime": now,
+    })
+    url = f"https://api.gdeltproject.org/api/v2/doc/doc?{qs}"
+    try:
+        req = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
+        with urllib.request.urlopen(req, timeout=30) as r:
+            data = json.loads(r.read().decode("utf-8"))
+    except Exception as exc:  # noqa: BLE001
+        print(f"  [gdelt warn] {exc}", file=sys.stderr)
+        return []
+
+    results = []
+    for art in data.get("articles", []) or []:
+        link = (art.get("url") or "").strip()
+        if not link:
+            continue
+        source = (art.get("domain") or "").strip()
+        slc = source.lower()
+        if any(kw in slc for kw in EXCLUDED_SOURCE_KEYWORDS):
+            continue
+        # GDELT seendate format: YYYYMMDDTHHMMSSZ
+        seendate = (art.get("seendate") or "").strip()
+        published = ""
+        if len(seendate) >= 8:
+            try:
+                published = datetime.strptime(seendate[:14], "%Y%m%d%H%M%S").replace(tzinfo=timezone.utc).isoformat()
+            except ValueError:
+                pass
+        results.append({
+            "address": address,
+            "title": (art.get("title") or "").strip(),
+            "url": link,
+            "source": source,
+            "published": published,
+            "snippet": "",  # GDELT DOC list doesn't include snippets
+        })
+    return results
+
+
 def fetch_news_for_address(address: str) -> list[dict]:
     """Query Google News for one address and return a list of normalized records."""
     # Include 'New York' to bias toward NYC-specific results.
@@ -204,6 +265,11 @@ def main() -> int:
     ap.add_argument("--since", type=int, default=None, help="Only addresses scraped in last N days")
     ap.add_argument("--limit", type=int, default=None, help="Cap N addresses (smoke test)")
     ap.add_argument("--address", default=None, help="Process one specific address")
+    ap.add_argument(
+        "--sources",
+        default="google,gdelt",
+        help="Comma-separated: google,gdelt (default: both)",
+    )
     args = ap.parse_args()
 
     articles = _read_json(ARTICLES_FILE, [])
@@ -230,18 +296,29 @@ def main() -> int:
     existing_urls = {r.get("url") for r in store["articles"] if r.get("url")}
     print(f"[store] {len(store['articles'])} existing related-news records")
 
+    sources = {s.strip() for s in (args.sources or "").split(",") if s.strip()}
+    print(f"[plan] sources: {sorted(sources) or 'NONE'}")
+
     now_iso = datetime.now(timezone.utc).isoformat()
     added = 0
     failed = 0
     for i, addr in enumerate(addresses, 1):
         print(f"[{i}/{len(addresses)}] {addr}")
-        try:
-            found = fetch_news_for_address(addr)
-        except Exception as exc:  # noqa: BLE001
-            print(f"  [error] {exc}", file=sys.stderr)
-            failed += 1
+        found: list[dict] = []
+        if "google" in sources:
+            try:
+                found.extend(fetch_news_for_address(addr))
+            except Exception as exc:  # noqa: BLE001
+                print(f"  [google error] {exc}", file=sys.stderr)
+                failed += 1
             time.sleep(DELAY_BETWEEN_QUERIES_S)
-            continue
+        if "gdelt" in sources:
+            try:
+                found.extend(fetch_gdelt_for_address(addr))
+            except Exception as exc:  # noqa: BLE001
+                print(f"  [gdelt error] {exc}", file=sys.stderr)
+                failed += 1
+
         new_for_addr = 0
         for rec in found:
             if rec["url"] in existing_urls:
@@ -254,7 +331,6 @@ def main() -> int:
         store["address_refresh_dates"][addr] = now_iso
         if new_for_addr:
             print(f"  + {new_for_addr} new")
-        time.sleep(DELAY_BETWEEN_QUERIES_S)
 
         # Flush to disk every 50 addresses so a crash doesn't lose everything.
         if i % 50 == 0:
