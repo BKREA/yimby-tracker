@@ -270,6 +270,11 @@ def main() -> int:
         default="google,gdelt",
         help="Comma-separated: google,gdelt (default: both)",
     )
+    ap.add_argument(
+        "--addresses",
+        default=None,
+        help="Explicit address list (newline OR '||'-separated). Overrides articles.json discovery.",
+    )
     args = ap.parse_args()
 
     articles = _read_json(ARTICLES_FILE, [])
@@ -277,7 +282,12 @@ def main() -> int:
         print("error: articles.json must be a list", file=sys.stderr)
         return 2
 
-    if args.address:
+    if args.addresses:
+        # Bulk: caller passed an explicit list. Accept newline OR "||" separators
+        # so workflow_dispatch (which is a single string) and CLI (newline) both work.
+        raw = args.addresses.replace("||", "\n")
+        addresses = [a.strip() for a in raw.split("\n") if a.strip()]
+    elif args.address:
         addresses = [args.address]
     else:
         addresses = collect_addresses(articles, since_days=args.since)

@@ -18,6 +18,10 @@ on:
         description: "Comma-separated: google,gdelt (default: both)"
         required: false
         default: "google,gdelt"
+      addresses:
+        description: "Optional explicit list, '||'-separated. Overrides all discovery."
+        required: false
+        default: ""
 
 permissions:
   contents: write
@@ -52,7 +56,13 @@ jobs:
           if [ -n "${{ inputs.sources }}" ]; then
             ARGS="$ARGS --sources ${{ inputs.sources }}"
           fi
-          python enrich_news.py $ARGS
+          if [ -n "${{ inputs.addresses }}" ]; then
+            # Use env var (not arg) so '||' separators and quotes survive the shell.
+            export BULK_ADDRESSES="${{ inputs.addresses }}"
+            python enrich_news.py $ARGS --addresses "$BULK_ADDRESSES"
+          else
+            python enrich_news.py $ARGS
+          fi
 
       - name: Commit updated related_news.json
         if: always()

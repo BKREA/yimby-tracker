@@ -3,6 +3,7 @@ import { dispatchWorkflow } from "@/lib/github";
 
 const ALLOWED = new Set([
   ["daily-scrape.yml", new Set<string>()],
+  ["enrich-news.yml", new Set(["since_days", "limit", "sources", "addresses"])],
 ] as const);
 
 export async function POST(req: Request) {

@@ -104,6 +104,10 @@ export function ArticlesPreview({ refreshSignal, runs, relatedNews = {} }: Props
   const [query, _setQuery] = useState<string>("");
   // Which row's "Related" panel is expanded.
   const [expandedUrl, setExpandedUrl] = useState<string | null>(null);
+  // Bulk selection (keyed by article url, value is the article's address).
+  const [selected, setSelected] = useState<Record<string, string>>({});
+  const [bulkBusy, setBulkBusy] = useState(false);
+  const [bulkMsg, setBulkMsg] = useState<{ kind: "ok" | "err"; text: string } | null>(null);
 
   // Reset to page 0 whenever the visible slice would change underneath us.
   const setTab = (t: "development" | "transaction") => {
@@ -126,6 +130,60 @@ export function ArticlesPreview({ refreshSignal, runs, relatedNews = {} }: Props
     _setToDate(d);
     setPage(0);
   };
+
+  // Dedupe to unique addresses for bulk lookup so we don't re-query the same
+  // address when multiple articles share it.
+  const selectedAddresses = Array.from(
+    new Set(Object.values(selected).filter((a) => a && a.trim().length > 0)),
+  );
+
+  function toggleSelect(article: Article) {
+    setSelected((prev) => {
+      const next = { ...prev };
+      if (next[article.url]) delete next[article.url];
+      else next[article.url] = (article.address ?? "").trim();
+      return next;
+    });
+  }
+
+  function clearSelection() {
+    setSelected({});
+  }
+
+  async function lookupNewsForSelected(sources: "google,gdelt" | "gdelt" | "google") {
+    if (selectedAddresses.length === 0 || bulkBusy) return;
+    setBulkBusy(true);
+    setBulkMsg(null);
+    try {
+      const res = await fetch("/api/dispatch", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          workflow: "enrich-news.yml",
+          inputs: {
+            addresses: selectedAddresses.join("||"),
+            sources,
+          },
+        }),
+      });
+      if (!res.ok) {
+        const body = (await res.json().catch(() => ({}))) as { error?: string };
+        throw new Error(body.error ?? `HTTP ${res.status}`);
+      }
+      setBulkMsg({
+        kind: "ok",
+        text: `Dispatched news lookup for ${selectedAddresses.length} address${selectedAddresses.length === 1 ? "" : "es"}. Watch Recent runs for status; the Related column updates when the workflow commits.`,
+      });
+      clearSelection();
+    } catch (err) {
+      setBulkMsg({
+        kind: "err",
+        text: `Failed: ${err instanceof Error ? err.message : String(err)}`,
+      });
+    } finally {
+      setBulkBusy(false);
+    }
+  }
 
   // Quick-pick presets in local time.
   const todayStr = new Date().toISOString().slice(0, 10);
@@ -418,6 +476,47 @@ export function ArticlesPreview({ refreshSignal, runs, relatedNews = {} }: Props
         )}
       </div>
 
+      {selectedAddresses.length > 0 && (
+        <div className="mb-4 p-3 rounded-lg border border-sky-500/40 bg-sky-500/10 flex flex-wrap items-center gap-2 text-sm">
+          <span className="text-sky-200 font-medium">
+            {selectedAddresses.length} address{selectedAddresses.length === 1 ? "" : "es"} selected
+          </span>
+          <span className="text-neutral-400 text-xs">·</span>
+          <button
+            onClick={() => lookupNewsForSelected("google,gdelt")}
+            disabled={bulkBusy}
+            className="px-3 py-1 rounded bg-sky-500 text-black font-medium hover:bg-sky-400 disabled:opacity-50"
+            title="Run Google News RSS + GDELT for the selected addresses"
+          >
+            {bulkBusy ? "Dispatching…" : "Look up news (all sources)"}
+          </button>
+          <button
+            onClick={() => lookupNewsForSelected("gdelt")}
+            disabled={bulkBusy}
+            className="px-3 py-1 rounded border border-sky-500/40 text-sky-200 hover:border-sky-500 disabled:opacity-50"
+            title="GDELT only — historical (2015+) coverage from any outlet"
+          >
+            GDELT only
+          </button>
+          <button
+            onClick={clearSelection}
+            disabled={bulkBusy}
+            className="ml-auto text-xs text-neutral-400 hover:text-white"
+          >
+            Clear selection ×
+          </button>
+        </div>
+      )}
+      {bulkMsg && (
+        <p
+          className={`mb-3 text-sm ${
+            bulkMsg.kind === "err" ? "text-red-400" : "text-emerald-300"
+          }`}
+        >
+          {bulkMsg.text}
+        </p>
+      )}
+
       <div className="flex gap-2 mb-4 text-sm items-center">
         <button
           onClick={() => setTab("development")}
@@ -491,6 +590,24 @@ export function ArticlesPreview({ refreshSignal, runs, relatedNews = {} }: Props
           <table className="w-full text-sm">
             <thead className="text-left text-neutral-400">
               <tr>
+                <th className="py-1.5 pr-2 font-normal w-6">
+                  <input
+                    type="checkbox"
+                    aria-label="Select all visible rows"
+                    checked={visible.length > 0 && visible.every((a) => selected[a.url])}
+                    onChange={(e) => {
+                      const checked = e.target.checked;
+                      setSelected((prev) => {
+                        const next = { ...prev };
+                        for (const a of visible) {
+                          if (checked) next[a.url] = (a.address ?? "").trim();
+                          else delete next[a.url];
+                        }
+                        return next;
+                      });
+                    }}
+                  />
+                </th>
                 <th className="py-1.5 pr-3 font-normal">Date</th>
                 <th className="py-1.5 pr-3 font-normal">Address</th>
                 <th className="py-1.5 pr-3 font-normal">Borough</th>
@@ -511,6 +628,15 @@ export function ArticlesPreview({ refreshSignal, runs, relatedNews = {} }: Props
                 const isOpen = expandedUrl === a.url;
                 return [
                   <tr key={a.url} className="border-t border-neutral-800 align-top">
+                    <td className="py-2 pr-2">
+                      <input
+                        type="checkbox"
+                        checked={!!selected[a.url]}
+                        onChange={() => toggleSelect(a)}
+                        disabled={!(a.address && a.address.trim())}
+                        aria-label={`Select ${a.address ?? "row"}`}
+                      />
+                    </td>
                     <td className="py-2 pr-3 text-neutral-400 whitespace-nowrap">{(a.scraped_at || "").slice(0, 10) || "—"}</td>
                     <td className="py-2 pr-3">{blank(a.address)}</td>
                     <td className="py-2 pr-3 text-neutral-300">{blank(a.borough)}</td>
@@ -548,7 +674,7 @@ export function ArticlesPreview({ refreshSignal, runs, relatedNews = {} }: Props
                   </tr>,
                   isOpen && related.length > 0 ? (
                     <tr key={`${a.url}::related`} className="bg-neutral-950/50">
-                      <td colSpan={12} className="px-3 py-3">
+                      <td colSpan={13} className="px-3 py-3">
                         <p className="text-xs text-neutral-500 mb-2">
                           Related coverage of {a.address} ({related.length})
                         </p>
@@ -588,6 +714,24 @@ export function ArticlesPreview({ refreshSignal, runs, relatedNews = {} }: Props
             <table className="w-full text-sm">
               <thead className="text-left text-neutral-400">
                 <tr>
+                  <th className="py-1.5 pr-2 font-normal w-6">
+                    <input
+                      type="checkbox"
+                      aria-label="Select all visible rows"
+                      checked={visible.length > 0 && visible.every((a) => selected[a.url])}
+                      onChange={(e) => {
+                        const checked = e.target.checked;
+                        setSelected((prev) => {
+                          const next = { ...prev };
+                          for (const a of visible) {
+                            if (checked) next[a.url] = (a.address ?? "").trim();
+                            else delete next[a.url];
+                          }
+                          return next;
+                        });
+                      }}
+                    />
+                  </th>
                   <th className="py-1.5 pr-3 font-normal">Scraped</th>
                   <th className="py-1.5 pr-3 font-normal">Address</th>
                   <th className="py-1.5 pr-3 font-normal">Amount</th>
@@ -607,6 +751,15 @@ export function ArticlesPreview({ refreshSignal, runs, relatedNews = {} }: Props
                   const isOpen = expandedUrl === a.url;
                   return [
                     <tr key={a.url} className="border-t border-neutral-800 align-top">
+                      <td className="py-2 pr-2">
+                        <input
+                          type="checkbox"
+                          checked={!!selected[a.url]}
+                          onChange={() => toggleSelect(a)}
+                          disabled={!(a.address && a.address.trim())}
+                          aria-label={`Select ${a.address ?? "row"}`}
+                        />
+                      </td>
                       <td className="py-2 pr-3 text-neutral-400 whitespace-nowrap">{(a.scraped_at || "").slice(0, 10) || "—"}</td>
                       <td className="py-2 pr-3">{blank(a.address)}</td>
                       <td className="py-2 pr-3 text-neutral-300">{fmtMoney(a.transaction_amount)}</td>
@@ -641,7 +794,7 @@ export function ArticlesPreview({ refreshSignal, runs, relatedNews = {} }: Props
                     </tr>,
                     isOpen && related.length > 0 ? (
                       <tr key={`${a.url}::related`} className="bg-neutral-950/50">
-                        <td colSpan={11} className="px-3 py-3">
+                        <td colSpan={12} className="px-3 py-3">
                           <p className="text-xs text-neutral-500 mb-2">
                             Related coverage of {a.address} ({related.length})
                           </p>
