@@ -258,6 +258,45 @@ export function ArticlesPreview({ refreshSignal, runs, relatedNews = {} }: Props
     }
   }
 
+  function exportWithNewsCsv() {
+    const today = new Date().toISOString().slice(0, 10);
+    // Denormalized: one row per (property × related-article) pair. Properties
+    // with no related news get one row with empty related-* columns so they
+    // still show up in the export.
+    const header = [
+      "url", "scraped_at", "article_type",
+      "address", "street_address", "neighborhood", "borough",
+      "type", "developer", "architect",
+      "number_of_units", "square_footage", "stories", "height_ft",
+      "transaction_amount", "price_per_unit", "price_per_square_foot",
+      "buyer", "seller", "brokers", "date_of_transaction",
+      "notes",
+      // Related news fields:
+      "related_title", "related_source", "related_url", "related_published",
+    ];
+    const rows: (string | number | null | undefined)[][] = [header];
+    for (const a of dateFiltered) {
+      const baseCols: (string | number | null | undefined)[] = [
+        a.url, a.scraped_at, a.article_type,
+        a.address, a.street_address, a.neighborhood, a.borough,
+        a.type, a.developer, a.architect,
+        a.number_of_units, a.square_footage, a.stories, a.height_ft,
+        a.transaction_amount, a.price_per_unit, a.price_per_square_foot,
+        a.buyer, a.seller, a.brokers, a.date_of_transaction,
+        a.notes,
+      ];
+      const related = (a.address && relatedNews[a.address]) || [];
+      if (related.length === 0) {
+        rows.push([...baseCols, "", "", "", ""]);
+      } else {
+        for (const r of related) {
+          rows.push([...baseCols, r.title, r.source, r.url, r.published]);
+        }
+      }
+    }
+    downloadText(`yimby-with-news-${today}.csv`, toCsv(rows));
+  }
+
   function exportAllCsv() {
     const today = new Date().toISOString().slice(0, 10);
     // Union of every field across both schemas — one row per article, blank
@@ -428,7 +467,15 @@ export function ArticlesPreview({ refreshSignal, runs, relatedNews = {} }: Props
             className="px-3 py-1 rounded border border-neutral-700 text-neutral-300 hover:text-white hover:border-neutral-500 disabled:opacity-50"
             title="Download every record (both tabs) with the union of all columns"
           >
-            ⬇ All ({(articles ?? []).length.toLocaleString()})
+            ⬇ All ({dateFiltered.length.toLocaleString()})
+          </button>
+          <button
+            onClick={exportWithNewsCsv}
+            disabled={(articles ?? []).length === 0}
+            className="px-3 py-1 rounded border border-neutral-700 text-neutral-300 hover:text-white hover:border-neutral-500 disabled:opacity-50"
+            title="Download every property joined to its related news (one row per property × related article). Properties with no related news still appear once."
+          >
+            ⬇ With news
           </button>
         </div>
       </div>
