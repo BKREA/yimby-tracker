@@ -275,7 +275,33 @@ def main() -> int:
         default=None,
         help="Explicit address list (newline OR '||'-separated). Overrides articles.json discovery.",
     )
+    ap.add_argument(
+        "--chunk-index",
+        type=int,
+        default=None,
+        help="When chunking, this worker's index (0..chunk-count-1). Slices addresses[chunk_index::chunk_count].",
+    )
+    ap.add_argument(
+        "--chunk-count",
+        type=int,
+        default=None,
+        help="Total number of parallel chunks (must be >= 1).",
+    )
+    ap.add_argument(
+        "--output-file",
+        default=None,
+        help="Override the output path (used in chunked runs so chunks write to separate files).",
+    )
     args = ap.parse_args()
+
+    # If chunking is requested, override NEWS_FILE so this chunk writes to its
+    # own file (no merge conflicts with parallel siblings). A separate merge
+    # script reconciles them after the matrix completes.
+    global NEWS_FILE
+    if args.output_file:
+        NEWS_FILE = Path(args.output_file)
+    elif args.chunk_count is not None and args.chunk_index is not None:
+        NEWS_FILE = Path(f"related_news.chunk{args.chunk_index}.json")
 
     articles = _read_json(ARTICLES_FILE, [])
     if not isinstance(articles, list):
@@ -293,6 +319,21 @@ def main() -> int:
         addresses = collect_addresses(articles, since_days=args.since)
         if args.limit:
             addresses = addresses[: args.limit]
+
+    # Apply chunking AFTER the address list is built so all chunks see the same
+    # universe. Stride-by-N keeps neighbours apart so a streak of large addresses
+    # is spread across chunks instead of slowing one of them down.
+    if args.chunk_count is not None and args.chunk_index is not None:
+        if args.chunk_count < 1 or args.chunk_index < 0 or args.chunk_index >= args.chunk_count:
+            print(
+                f"error: bad chunk-index/chunk-count: {args.chunk_index}/{args.chunk_count}",
+                file=sys.stderr,
+            )
+            return 2
+        addresses = addresses[args.chunk_index :: args.chunk_count]
+        print(
+            f"[chunk] index={args.chunk_index} count={args.chunk_count} → {len(addresses)} of this chunk"
+        )
 
     print(f"[plan] {len(addresses)} addresses to query")
 
