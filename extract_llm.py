@@ -225,50 +225,63 @@ def cache_stats() -> dict[str, int]:
     return dict(CACHE_STATS)
 
 
-def extract_with_llm(title: str, body_text: str, model: str = DEFAULT_MODEL) -> dict[str, Any]:
-    """Call Claude with the schema, return the tool input as a dict.
+def build_request_params(title: str, body_text: str, model: str = DEFAULT_MODEL) -> dict[str, Any]:
+    """The message params for one extraction — shared by the sync and Batch paths.
 
-    The stable prefix — system prompt + tool schema — is marked for prompt
-    caching so repeated calls only pay full price for it once per 5-minute
-    window (cache reads cost ~10%). NOTE: caching only engages when that prefix
-    meets the model's minimum cacheable length (Haiku ≈ 2048 tokens); below
-    that it's a harmless no-op. Check cache_stats()/CACHE_DEBUG to verify.
+    The stable prefix (system prompt + tool schema) is marked for prompt caching
+    so repeated calls pay full price for it only once per 5-min window (cache
+    reads ~10%). Caching engages only when that prefix meets the model's minimum
+    cacheable length (Haiku ≈ 2048 tokens); below that it's a harmless no-op.
     """
-    client = _get_client()
     prompt = (
         f"Article title: {title}\n\n"
         f"Article body:\n{body_text}\n\n"
         "Extract every field you can verify from the text above. Leave the rest blank/null."
     )
-    msg = client.messages.create(
-        model=model,
-        max_tokens=2000,
-        # cache breakpoint on the system block — caches tools + system prefix.
-        system=[{"type": "text", "text": _SYSTEM, "cache_control": {"type": "ephemeral"}}],
-        tools=[{**_TOOL, "cache_control": {"type": "ephemeral"}}],
-        tool_choice={"type": "tool", "name": "save_article"},
-        messages=[{"role": "user", "content": prompt}],
-    )
+    return {
+        "model": model,
+        "max_tokens": 2000,
+        # cache breakpoint on the system block caches the tools + system prefix.
+        "system": [{"type": "text", "text": _SYSTEM, "cache_control": {"type": "ephemeral"}}],
+        "tools": [{**_TOOL, "cache_control": {"type": "ephemeral"}}],
+        "tool_choice": {"type": "tool", "name": "save_article"},
+        "messages": [{"role": "user", "content": prompt}],
+    }
 
-    u = getattr(msg, "usage", None)
-    if u is not None:
-        CACHE_STATS["calls"] += 1
-        CACHE_STATS["cache_write"] += getattr(u, "cache_creation_input_tokens", 0) or 0
-        CACHE_STATS["cache_read"] += getattr(u, "cache_read_input_tokens", 0) or 0
-        CACHE_STATS["uncached_input"] += getattr(u, "input_tokens", 0) or 0
-        CACHE_STATS["output"] += getattr(u, "output_tokens", 0) or 0
-        if os.environ.get("CACHE_DEBUG"):
-            print(
-                f"[cache] read={getattr(u,'cache_read_input_tokens',0)} "
-                f"write={getattr(u,'cache_creation_input_tokens',0)} "
-                f"input={getattr(u,'input_tokens',0)} output={getattr(u,'output_tokens',0)}",
-                file=sys.stderr,
-            )
 
-    for block in msg.content:
-        if block.type == "tool_use" and block.name == "save_article":
+def batch_request(custom_id: str, title: str, body_text: str, model: str = DEFAULT_MODEL) -> dict[str, Any]:
+    """One entry for the Message Batches API (50% cheaper than sync)."""
+    return {"custom_id": custom_id, "params": build_request_params(title, body_text, model)}
+
+
+def record_usage(u: Any) -> None:
+    """Accumulate cache/token usage from a Message.usage (sync or batch result)."""
+    if u is None:
+        return
+    CACHE_STATS["calls"] += 1
+    CACHE_STATS["cache_write"] += getattr(u, "cache_creation_input_tokens", 0) or 0
+    CACHE_STATS["cache_read"] += getattr(u, "cache_read_input_tokens", 0) or 0
+    CACHE_STATS["uncached_input"] += getattr(u, "input_tokens", 0) or 0
+    CACHE_STATS["output"] += getattr(u, "output_tokens", 0) or 0
+
+
+def parse_save_article(content: Any) -> dict[str, Any]:
+    """Pull the save_article tool input out of a message's content blocks."""
+    for block in content:
+        if getattr(block, "type", None) == "tool_use" and getattr(block, "name", None) == "save_article":
             return block.input  # type: ignore[return-value]
-    raise RuntimeError(f"Claude did not call save_article tool. Response: {msg.content!r}")
+    raise RuntimeError(f"Claude did not call save_article tool. Response: {content!r}")
+
+
+def extract_with_llm(title: str, body_text: str, model: str = DEFAULT_MODEL) -> dict[str, Any]:
+    """Synchronous single-article extraction. Returns the tool input as a dict."""
+    client = _get_client()
+    msg = client.messages.create(**build_request_params(title, body_text, model))
+    record_usage(getattr(msg, "usage", None))
+    if os.environ.get("CACHE_DEBUG"):
+        u = getattr(msg, "usage", None)
+        print(f"[cache] read={getattr(u,'cache_read_input_tokens',0)} write={getattr(u,'cache_creation_input_tokens',0)}", file=sys.stderr)
+    return parse_save_article(msg.content)
 
 
 def llm_parse_item(item, scraped_at: str) -> LLMArticle:
@@ -293,8 +306,12 @@ def llm_parse_item(item, scraped_at: str) -> LLMArticle:
     )
 
 
-def llm_parse_article_html(html_text: str, url: str, scraped_at: str) -> LLMArticle:
-    """Build an LLMArticle from a fetched article HTML page (used by backfill)."""
+def parse_article_fields(html_text: str, url: str) -> tuple[str, str, str]:
+    """Extract (title, body_text, published) from an article page — no LLM call.
+
+    Shared by the sync backfill and the Batch path (which scrapes first, then
+    sends all bodies to the Batch API in one go).
+    """
     from bs4 import BeautifulSoup  # local import to avoid extra dep at top
 
     soup = BeautifulSoup(html_text, "lxml")
@@ -315,8 +332,12 @@ def llm_parse_article_html(html_text: str, url: str, scraped_at: str) -> LLMArti
     pub_meta = soup.find("meta", attrs={"property": "article:published_time"})
     published = pub_meta["content"] if pub_meta and pub_meta.get("content") else ""
 
-    fields = extract_with_llm(title, body_text)
+    return title, body_text, published
 
+
+def build_article_record(url: str, scraped_at: str, title: str, body_text: str,
+                          published: str, fields: dict[str, Any]) -> LLMArticle:
+    """Assemble an LLMArticle from scraped fields + extracted (LLM) fields."""
     return LLMArticle(
         url=url,
         scraped_at=scraped_at,
@@ -325,6 +346,13 @@ def llm_parse_article_html(html_text: str, url: str, scraped_at: str) -> LLMArti
         body=body_text,
         **{k: v for k, v in fields.items() if k in _allowed_fields()},
     )
+
+
+def llm_parse_article_html(html_text: str, url: str, scraped_at: str) -> LLMArticle:
+    """Build an LLMArticle from a fetched article HTML page (sync backfill)."""
+    title, body_text, published = parse_article_fields(html_text, url)
+    fields = extract_with_llm(title, body_text)
+    return build_article_record(url, scraped_at, title, body_text, published, fields)
 
 
 def _allowed_fields() -> set[str]:
