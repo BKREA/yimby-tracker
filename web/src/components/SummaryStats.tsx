@@ -10,6 +10,7 @@ interface Article {
   published?: string;
   article_type?: string;
   address?: string;
+  street_address?: string;
   borough?: string;
   number_of_units?: number | null;
   transaction_amount?: number | null;
@@ -170,8 +171,10 @@ export function SummaryStats({ refreshSignal, relatedNews = {} }: Props) {
     const u = num(a.number_of_units);
     return s + (u > 0 && u <= MAX_UNITS ? u : 0);
   }, 0);
+  // Match the Properties tab exactly: fall back to street_address when the
+  // primary address yields no building key.
   const buildings = new Set(
-    articles.map((a) => buildingKey(a.address)).filter(Boolean),
+    articles.map((a) => buildingKey(a.address) || buildingKey(a.street_address)).filter(Boolean),
   ).size;
   const finVolume = articles
     .filter((a) => a.article_type === "financing")
