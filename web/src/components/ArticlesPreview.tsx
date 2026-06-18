@@ -109,6 +109,9 @@ export function ArticlesPreview({ refreshSignal, runs, relatedNews = {} }: Props
   const [total, setTotal] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [tab, _setTab] = useState<"development" | "transaction">("development");
+  // Active source view: "yimby" = the scraped corpus (default), "related" = all
+  // related-news outlets combined, or a specific outlet name (e.g. "6sqft").
+  const [source, _setSource] = useState<string>("yimby");
   const [pageSize, _setPageSize] = useState<number>(50);
   const [page, setPage] = useState<number>(0);  // 0-indexed
   // Filters
@@ -125,6 +128,11 @@ export function ArticlesPreview({ refreshSignal, runs, relatedNews = {} }: Props
   // Reset to page 0 whenever the visible slice would change underneath us.
   const setTab = (t: "development" | "transaction") => {
     _setTab(t);
+    setPage(0);
+  };
+  // Clicking the already-active chip toggles back to the YIMBY corpus.
+  const setSource = (s: string) => {
+    _setSource((cur) => (cur === s ? "yimby" : s));
     setPage(0);
   };
   const setQuery = (s: string) => {
@@ -418,44 +426,100 @@ export function ArticlesPreview({ refreshSignal, runs, relatedNews = {} }: Props
   const topSources = [...relatedBySource.entries()].sort((a, b) => b[1] - a[1]);
   const relatedTotal = relatedUnique.size;
 
+  // Related-news view: active when a chip other than YIMBY is selected. Honors
+  // the same search box and date filter (by published date) as the corpus view.
+  const relatedFiltered = [...relatedUnique.values()]
+    .filter((r) => {
+      if (source !== "related" && (r.source || "Other").trim() !== source) return false;
+      if (needle) {
+        const hay = [r.title, r.source, r.address, r.url].filter(Boolean).join(" ").toLowerCase();
+        if (!hay.includes(needle)) return false;
+      }
+      const d = (r.published || "").slice(0, 10);
+      if (fromDate && d && d < fromDate) return false;
+      if (toDate && d && d > toDate) return false;
+      return true;
+    })
+    .sort((a, b) => (a.published < b.published ? 1 : a.published > b.published ? -1 : 0));
+  const relTotalPages = Math.max(1, Math.ceil(relatedFiltered.length / pageSize));
+  const relSafePage = Math.min(page, relTotalPages - 1);
+  const relVisible = relatedFiltered.slice(relSafePage * pageSize, relSafePage * pageSize + pageSize);
+
+  function exportRelatedCsv() {
+    const today = new Date().toISOString().slice(0, 10);
+    const header = ["published", "source", "address", "title", "url", "snippet"];
+    const rows: (string | number | null | undefined)[][] = [header];
+    for (const r of relatedFiltered) {
+      rows.push([r.published, r.source, r.address, r.title, r.url, r.snippet]);
+    }
+    const label = source === "related" ? "all" : source.replace(/[^a-z0-9]+/gi, "-").toLowerCase();
+    downloadText(`related-news-${label}-${today}.csv`, toCsv(rows));
+  }
+
   return (
     <section className="border border-neutral-800 rounded-lg p-5 bg-neutral-900/40">
       <div className="flex items-baseline justify-between mb-3">
         <h2 className="text-lg font-semibold">Articles</h2>
         {total !== null && (
           <span className="text-sm text-neutral-400">
-            {dateFiltered.length.toLocaleString()}
-            {(fromDate || toDate || needle) && ` of ${total.toLocaleString()}`}
-            {!fromDate && !toDate && !needle && " total"}
+            {source === "yimby" ? (
+              <>
+                {dateFiltered.length.toLocaleString()}
+                {(fromDate || toDate || needle) && ` of ${total.toLocaleString()}`}
+                {!fromDate && !toDate && !needle && " total"}
+              </>
+            ) : (
+              <>
+                {relatedFiltered.length.toLocaleString()}{" "}
+                {source === "related" ? "related-news" : source} article
+                {relatedFiltered.length === 1 ? "" : "s"}
+              </>
+            )}
           </span>
         )}
       </div>
 
-      {/* Source breakdown */}
+      {/* Source breakdown — click a chip to filter the list to that source. */}
       {total !== null && (
         <div className="mb-3 flex flex-wrap items-center gap-2 text-xs">
           <span className="text-neutral-500">Sources:</span>
-          <span
-            className="rounded-full bg-emerald-950/60 border border-emerald-800/60 text-emerald-300 px-2 py-0.5"
+          <button
+            onClick={() => _setSource("yimby")}
+            className={`rounded-full px-2 py-0.5 border transition-colors ${
+              source === "yimby"
+                ? "bg-emerald-500 border-emerald-400 text-black font-medium"
+                : "bg-emerald-950/60 border-emerald-800/60 text-emerald-300 hover:border-emerald-500"
+            }`}
             title="Primary feed — all articles scraped from newyorkyimby.com"
           >
             YIMBY {total.toLocaleString()}
-          </span>
-          <span
-            className="rounded-full bg-sky-950/60 border border-sky-800/60 text-sky-300 px-2 py-0.5"
-            title="Related news discovered via Google News / GDELT, deduped by URL"
+          </button>
+          <button
+            onClick={() => setSource("related")}
+            className={`rounded-full px-2 py-0.5 border transition-colors ${
+              source === "related"
+                ? "bg-sky-500 border-sky-400 text-black font-medium"
+                : "bg-sky-950/60 border-sky-800/60 text-sky-300 hover:border-sky-500"
+            }`}
+            title="All related news discovered via Google News / GDELT, deduped by URL"
           >
             Related news {relatedTotal.toLocaleString()}
             {topSources.length > 0 && ` · ${topSources.length} outlets`}
-          </span>
-          {topSources.slice(0, 4).map(([src, n]) => (
-            <span key={src} className="rounded-full bg-neutral-800/70 border border-neutral-700 text-neutral-300 px-2 py-0.5">
+          </button>
+          {topSources.map(([src, n]) => (
+            <button
+              key={src}
+              onClick={() => setSource(src)}
+              className={`rounded-full px-2 py-0.5 border transition-colors ${
+                source === src
+                  ? "bg-neutral-200 border-neutral-200 text-black font-medium"
+                  : "bg-neutral-800/70 border-neutral-700 text-neutral-300 hover:border-neutral-500"
+              }`}
+              title={`Show the ${n.toLocaleString()} ${src} article${n === 1 ? "" : "s"}`}
+            >
               {src} {n.toLocaleString()}
-            </span>
+            </button>
           ))}
-          {topSources.length > 4 && (
-            <span className="text-neutral-500">+{topSources.length - 4} more</span>
-          )}
         </div>
       )}
 
@@ -537,7 +601,7 @@ export function ArticlesPreview({ refreshSignal, runs, relatedNews = {} }: Props
         )}
       </div>
 
-      {selectedAddresses.length > 0 && (
+      {source === "yimby" && selectedAddresses.length > 0 && (
         <div className="mb-4 p-3 rounded-lg border border-sky-500/40 bg-sky-500/10 flex flex-wrap items-center gap-2 text-sm">
           <span className="text-sky-200 font-medium">
             {selectedAddresses.length} address{selectedAddresses.length === 1 ? "" : "es"} selected
@@ -578,6 +642,7 @@ export function ArticlesPreview({ refreshSignal, runs, relatedNews = {} }: Props
         </p>
       )}
 
+      {source === "yimby" && (
       <div className="flex gap-2 mb-4 text-sm items-center">
         <button
           onClick={() => setTab("development")}
@@ -639,6 +704,7 @@ export function ArticlesPreview({ refreshSignal, runs, relatedNews = {} }: Props
           </button>
         </div>
       </div>
+      )}
 
       {error && <p className="text-sm text-red-400 mb-3">Error: {error}</p>}
       {articles === null && !error && <p className="text-sm text-neutral-500">Loading…</p>}
@@ -646,7 +712,7 @@ export function ArticlesPreview({ refreshSignal, runs, relatedNews = {} }: Props
         <p className="text-sm text-neutral-500">No articles yet. Run a scrape above.</p>
       )}
 
-      {articles && articles.length > 0 && tab === "development" && (
+      {source === "yimby" && articles && articles.length > 0 && tab === "development" && (
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead className="text-left text-neutral-400">
@@ -767,7 +833,7 @@ export function ArticlesPreview({ refreshSignal, runs, relatedNews = {} }: Props
         </div>
       )}
 
-      {articles && articles.length > 0 && tab === "transaction" && (
+      {source === "yimby" && articles && articles.length > 0 && tab === "transaction" && (
         <div className="overflow-x-auto">
           {txCount === 0 ? (
             <p className="text-sm text-neutral-500">No transaction articles in the current set.</p>
@@ -888,7 +954,76 @@ export function ArticlesPreview({ refreshSignal, runs, relatedNews = {} }: Props
         </div>
       )}
 
-      {articles && articles.length > 0 && filtered.length > 0 && (
+      {/* Related-news view */}
+      {source !== "yimby" && (
+        <div>
+          <div className="flex items-center justify-end mb-3">
+            <button
+              onClick={exportRelatedCsv}
+              disabled={relatedFiltered.length === 0}
+              className="px-3 py-1 rounded border border-neutral-700 text-neutral-300 hover:text-white hover:border-neutral-500 disabled:opacity-50 text-sm"
+              title={`Download all ${relatedFiltered.length} related-news records as CSV`}
+            >
+              ⬇ CSV ({relatedFiltered.length.toLocaleString()})
+            </button>
+          </div>
+          {relatedFiltered.length === 0 ? (
+            <p className="text-sm text-neutral-500">
+              No {source === "related" ? "related-news" : source} articles match the current filters.
+            </p>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead className="text-left text-neutral-400">
+                  <tr>
+                    <th className="py-1.5 pr-3 font-normal">Published</th>
+                    <th className="py-1.5 pr-3 font-normal">Outlet</th>
+                    <th className="py-1.5 pr-3 font-normal">Property</th>
+                    <th className="py-1.5 pr-3 font-normal">Title</th>
+                    <th className="py-1.5 font-normal"></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {relVisible.map((r, i) => (
+                    <tr key={`${r.url}-${i}`} className="border-t border-neutral-800 align-top">
+                      <td className="py-2 pr-3 text-neutral-400 whitespace-nowrap">{(r.published || "").slice(0, 10) || "—"}</td>
+                      <td className="py-2 pr-3 text-neutral-300 whitespace-nowrap">{r.source || "—"}</td>
+                      <td className="py-2 pr-3 text-neutral-300">{r.address || "—"}</td>
+                      <td className="py-2 pr-3">{r.title || "—"}</td>
+                      <td className="py-2">
+                        <a href={r.url} target="_blank" rel="noreferrer" className="text-sky-400 hover:underline whitespace-nowrap">
+                          open ↗
+                        </a>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+          {relatedFiltered.length > 0 && (
+            <div className="flex items-center justify-between mt-4 text-xs text-neutral-500">
+              <span>
+                Showing {(relSafePage * pageSize + 1).toLocaleString()}–
+                {Math.min((relSafePage + 1) * pageSize, relatedFiltered.length).toLocaleString()} of{" "}
+                {relatedFiltered.length.toLocaleString()}{" "}
+                {source === "related" ? "related-news" : source} records
+              </span>
+              {relTotalPages > 1 && (
+                <div className="flex items-center gap-1">
+                  <button onClick={() => setPage(0)} disabled={relSafePage === 0} className="px-2 py-0.5 rounded border border-neutral-800 text-neutral-400 hover:text-white hover:border-neutral-600 disabled:opacity-40 disabled:cursor-not-allowed" title="First page">«</button>
+                  <button onClick={() => setPage((p) => Math.max(0, p - 1))} disabled={relSafePage === 0} className="px-2 py-0.5 rounded border border-neutral-800 text-neutral-400 hover:text-white hover:border-neutral-600 disabled:opacity-40 disabled:cursor-not-allowed" title="Previous page">‹ Prev</button>
+                  <span className="px-2 text-neutral-400">Page {relSafePage + 1} of {relTotalPages}</span>
+                  <button onClick={() => setPage((p) => Math.min(relTotalPages - 1, p + 1))} disabled={relSafePage >= relTotalPages - 1} className="px-2 py-0.5 rounded border border-neutral-800 text-neutral-400 hover:text-white hover:border-neutral-600 disabled:opacity-40 disabled:cursor-not-allowed" title="Next page">Next ›</button>
+                  <button onClick={() => setPage(relTotalPages - 1)} disabled={relSafePage >= relTotalPages - 1} className="px-2 py-0.5 rounded border border-neutral-800 text-neutral-400 hover:text-white hover:border-neutral-600 disabled:opacity-40 disabled:cursor-not-allowed" title="Last page">»</button>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+
+      {source === "yimby" && articles && articles.length > 0 && filtered.length > 0 && (
         <div className="flex items-center justify-between mt-4 text-xs text-neutral-500">
           <span>
             Showing {(sliceStart + 1).toLocaleString()}–
