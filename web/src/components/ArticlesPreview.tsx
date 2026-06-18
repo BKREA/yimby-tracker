@@ -130,11 +130,6 @@ export function ArticlesPreview({ refreshSignal, runs, relatedNews = {} }: Props
     _setTab(t);
     setPage(0);
   };
-  // Clicking the already-active chip toggles back to the YIMBY corpus.
-  const setSource = (s: string) => {
-    _setSource((cur) => (cur === s ? "yimby" : s));
-    setPage(0);
-  };
   const setQuery = (s: string) => {
     _setQuery(s);
     setPage(0);
@@ -479,50 +474,6 @@ export function ArticlesPreview({ refreshSignal, runs, relatedNews = {} }: Props
         )}
       </div>
 
-      {/* Source breakdown — click a chip to filter the list to that source. */}
-      {total !== null && (
-        <div className="mb-3 flex flex-wrap items-center gap-2 text-xs">
-          <span className="text-neutral-500">Sources:</span>
-          <button
-            onClick={() => _setSource("yimby")}
-            className={`rounded-full px-2 py-0.5 border transition-colors ${
-              source === "yimby"
-                ? "bg-emerald-500 border-emerald-400 text-black font-medium"
-                : "bg-emerald-950/60 border-emerald-800/60 text-emerald-300 hover:border-emerald-500"
-            }`}
-            title="Primary feed — all articles scraped from newyorkyimby.com"
-          >
-            YIMBY {total.toLocaleString()}
-          </button>
-          <button
-            onClick={() => setSource("related")}
-            className={`rounded-full px-2 py-0.5 border transition-colors ${
-              source === "related"
-                ? "bg-sky-500 border-sky-400 text-black font-medium"
-                : "bg-sky-950/60 border-sky-800/60 text-sky-300 hover:border-sky-500"
-            }`}
-            title="All related news discovered via Google News / GDELT, deduped by URL"
-          >
-            Related news {relatedTotal.toLocaleString()}
-            {topSources.length > 0 && ` · ${topSources.length} outlets`}
-          </button>
-          {topSources.map(([src, n]) => (
-            <button
-              key={src}
-              onClick={() => setSource(src)}
-              className={`rounded-full px-2 py-0.5 border transition-colors ${
-                source === src
-                  ? "bg-neutral-200 border-neutral-200 text-black font-medium"
-                  : "bg-neutral-800/70 border-neutral-700 text-neutral-300 hover:border-neutral-500"
-              }`}
-              title={`Show the ${n.toLocaleString()} ${src} article${n === 1 ? "" : "s"}`}
-            >
-              {src} {n.toLocaleString()}
-            </button>
-          ))}
-        </div>
-      )}
-
       {/* Search */}
       <div className="mb-3">
         <input
@@ -536,6 +487,28 @@ export function ArticlesPreview({ refreshSignal, runs, relatedNews = {} }: Props
 
       {/* Filter bar */}
       <div className="flex flex-wrap items-center gap-2 mb-4 text-xs">
+        {total !== null && (
+          <label className="flex items-center gap-1 text-neutral-500 mr-1">
+            <span>Source:</span>
+            <select
+              value={source}
+              onChange={(e) => {
+                _setSource(e.target.value);
+                setPage(0);
+              }}
+              className="bg-neutral-950 border border-neutral-800 rounded px-2 py-1 text-neutral-300"
+              aria-label="Filter by source"
+            >
+              <option value="yimby">YIMBY · {total.toLocaleString()}</option>
+              <option value="related">Related news (all) · {relatedTotal.toLocaleString()}</option>
+              {topSources.map(([src, n]) => (
+                <option key={src} value={src}>
+                  {src} · {n.toLocaleString()}
+                </option>
+              ))}
+            </select>
+          </label>
+        )}
         <span className="text-neutral-500">Filter:</span>
         <input
           type="date"
