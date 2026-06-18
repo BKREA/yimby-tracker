@@ -47,6 +47,14 @@ function isTransaction(a: Article): boolean {
   return Boolean(a.transaction_amount || a.buyer || a.seller || a.brokers || a.date_of_transaction);
 }
 
+// Coerce a possibly-string / empty / junk value to a finite number (0 otherwise).
+// Many records store "" for these fields, and `?? 0` doesn't catch "", which
+// would turn a running sum into string concatenation.
+function num(v: unknown): number {
+  const n = typeof v === "number" ? v : Number(v);
+  return Number.isFinite(n) ? n : 0;
+}
+
 function compactMoney(n: number): string {
   if (n >= 1e9) return `$${(n / 1e9).toFixed(1)}B`;
   if (n >= 1e6) return `$${(n / 1e6).toFixed(1)}M`;
@@ -146,8 +154,18 @@ export function SummaryStats({ refreshSignal, relatedNews = {} }: Props) {
   const latest = days[days.length - 1]?.slice(0, 4) ?? "—";
 
   const txns = articles.filter(isTransaction);
-  const txVolume = txns.reduce((s, a) => s + (a.transaction_amount ?? 0), 0);
-  const totalUnits = articles.reduce((s, a) => s + (a.number_of_units ?? 0), 0);
+  // Sanity bounds drop obvious extraction errors (no NYC building has >100k
+  // units; a single reported deal over $50B is almost certainly a misparse).
+  const MAX_UNITS = 100_000;
+  const MAX_DEAL = 50_000_000_000;
+  const txVolume = txns.reduce((s, a) => {
+    const v = num(a.transaction_amount);
+    return s + (v > 0 && v <= MAX_DEAL ? v : 0);
+  }, 0);
+  const totalUnits = articles.reduce((s, a) => {
+    const u = num(a.number_of_units);
+    return s + (u > 0 && u <= MAX_UNITS ? u : 0);
+  }, 0);
   const buildings = new Set(
     articles.map((a) => buildingKey(a.address)).filter(Boolean),
   ).size;
