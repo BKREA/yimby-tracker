@@ -42,8 +42,12 @@ function pubDay(a: Article): string {
   return (a.scraped_at || "").slice(0, 10);
 }
 
-function isTransaction(a: Article): boolean {
-  if (a.article_type) return a.article_type === "transaction" || a.article_type === "financing";
+// A property sale / acquisition. Deliberately EXCLUDES "financing" (loans &
+// refinancings) — those are tracked separately under the Financing stage, and
+// counting them here would double-count them and inflate deal volume with loan
+// principal rather than sale prices.
+function isAcquisition(a: Article): boolean {
+  if (a.article_type) return a.article_type === "transaction";
   return Boolean(a.transaction_amount || a.buyer || a.seller || a.brokers || a.date_of_transaction);
 }
 
@@ -153,7 +157,7 @@ export function SummaryStats({ refreshSignal, relatedNews = {} }: Props) {
   const earliest = days[0]?.slice(0, 4) ?? "—";
   const latest = days[days.length - 1]?.slice(0, 4) ?? "—";
 
-  const txns = articles.filter(isTransaction);
+  const txns = articles.filter(isAcquisition);
   // Sanity bounds drop obvious extraction errors (no NYC building has >100k
   // units; a single reported deal over $50B is almost certainly a misparse).
   const MAX_UNITS = 100_000;
@@ -169,6 +173,12 @@ export function SummaryStats({ refreshSignal, relatedNews = {} }: Props) {
   const buildings = new Set(
     articles.map((a) => buildingKey(a.address)).filter(Boolean),
   ).size;
+  const finVolume = articles
+    .filter((a) => a.article_type === "financing")
+    .reduce((s, a) => {
+      const v = num(a.transaction_amount);
+      return s + (v > 0 && v <= MAX_DEAL ? v : 0);
+    }, 0);
 
   const byYear = new Map<string, number>();
   const byStage = new Map<string, number>();
@@ -206,8 +216,8 @@ export function SummaryStats({ refreshSignal, relatedNews = {} }: Props) {
         <StatCard tone="blue" label="YIMBY Articles" value={total.toLocaleString()} sub={`${earliest}–${latest} coverage`} />
         <StatCard tone="emerald" label="Buildings Tracked" value={buildings.toLocaleString()} sub="distinct properties" />
         <StatCard tone="violet" label="Units Tracked" value={totalUnits.toLocaleString()} sub="sum of reported units" />
-        <StatCard tone="amber" label="Transactions" value={txns.length.toLocaleString()} sub="deal & financing articles" />
-        <StatCard tone="sky" label="Deal Volume" value={txVolume > 0 ? compactMoney(txVolume) : "—"} sub="total reported $" />
+        <StatCard tone="amber" label="Acquisitions" value={txns.length.toLocaleString()} sub="property sales & transfers" />
+        <StatCard tone="sky" label="Deal Volume" value={txVolume > 0 ? compactMoney(txVolume) : "—"} sub={finVolume > 0 ? `+ ${compactMoney(finVolume)} financing (separate)` : "acquisition prices"} />
         <StatCard tone="rose" label="Related News" value={relatedTotal.toLocaleString()} sub={`${outletCount} outlets`} />
       </div>
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
