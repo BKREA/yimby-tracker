@@ -418,7 +418,7 @@ export function ArticlesPreview({ refreshSignal, runs, relatedNews = {} }: Props
     const s = (r.source || "Other").trim() || "Other";
     relatedBySource.set(s, (relatedBySource.get(s) ?? 0) + 1);
   }
-  const topSources = [...relatedBySource.entries()].sort((a, b) => b[1] - a[1]);
+  const topSources = [...relatedBySource.entries()].sort((a, b) => a[0].localeCompare(b[0]));
   const relatedTotal = relatedUnique.size;
 
   // Related-news view: active when a chip other than YIMBY is selected. Honors
@@ -473,6 +473,18 @@ export function ArticlesPreview({ refreshSignal, runs, relatedNews = {} }: Props
           </span>
         )}
       </div>
+
+      {/* YIMBY vs. everything-else totals */}
+      {total !== null && (
+        <div className="mb-3 flex items-center gap-5 text-sm">
+          <span className="text-neutral-400">
+            YIMBY <span className="font-semibold text-emerald-400">{total.toLocaleString()}</span>
+          </span>
+          <span className="text-neutral-400">
+            Non-YIMBY <span className="font-semibold text-sky-400">{relatedTotal.toLocaleString()}</span>
+          </span>
+        </div>
+      )}
 
       {/* Search */}
       <div className="mb-3">
