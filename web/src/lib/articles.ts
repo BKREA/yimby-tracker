@@ -37,20 +37,35 @@ export interface Article {
   date_of_transaction?: string;
 }
 
+// Last successfully-parsed corpus, kept on the (warm) server instance. If a
+// later refetch hits a transient GitHub raw failure, we serve this rather than
+// 500-ing the client. Stale-but-up beats a hard error for a ~daily-changing file.
+let lastGood: Article[] | null = null;
+
 export async function loadArticles(): Promise<Article[]> {
   const owner = env("GITHUB_OWNER");
   const repo = env("GITHUB_REPO");
-  // Cache 60s. The file only changes after a workflow commit (~daily), so
-  // hammering raw.githubusercontent.com on every page load risks the same
-  // anonymous-rate-limit failure mode that took down /api/runs.
-  const res = await fetch(
-    `https://raw.githubusercontent.com/${owner}/${repo}/main/articles.json`,
-    { next: { revalidate: 60 } },
-  );
-  if (!res.ok) {
-    throw new Error(`fetch articles.json failed: ${res.status} ${await res.text()}`);
+  const url = `https://raw.githubusercontent.com/${owner}/${repo}/main/articles.json`;
+  // Cache 60s. The file only changes after a workflow commit, so hammering
+  // raw.githubusercontent.com on every load risks an anonymous-rate-limit 429/5xx.
+  // Retry transient failures a couple of times before giving up.
+  let lastErr: unknown;
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      const res = await fetch(url, { next: { revalidate: 60 } });
+      if (!res.ok) {
+        throw new Error(`fetch articles.json failed: ${res.status} ${await res.text()}`);
+      }
+      const data = (await res.json()) as unknown;
+      if (!Array.isArray(data)) throw new Error("articles.json is not an array");
+      lastGood = data as Article[];
+      return lastGood;
+    } catch (err) {
+      lastErr = err;
+      if (attempt < 2) await new Promise((r) => setTimeout(r, 300 * (attempt + 1)));
+    }
   }
-  const data = (await res.json()) as unknown;
-  if (!Array.isArray(data)) throw new Error("articles.json is not an array");
-  return data as Article[];
+  // All attempts failed — serve the last good copy if we have one, else surface.
+  if (lastGood) return lastGood;
+  throw lastErr instanceof Error ? lastErr : new Error(String(lastErr));
 }

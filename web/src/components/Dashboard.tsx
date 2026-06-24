@@ -5,6 +5,7 @@ import { RunButtons } from "./RunButtons";
 import { RunsTable, type Run } from "./RunsTable";
 import { ArticlesPreview, type RelatedNews } from "./ArticlesPreview";
 import { SummaryStats } from "./SummaryStats";
+import type { Article } from "@/lib/articles";
 
 // Cadence chosen to be friendly to GitHub's API limits. /api/runs hits the
 // authenticated GitHub API (5000/hr) plus the raw URL (cached 60s server-side),
@@ -22,6 +23,11 @@ export default function Dashboard() {
   const [note, setNote] = useState<string | null>(null);
   const [refreshArticles, setRefreshArticles] = useState(0);
   const [relatedNews, setRelatedNews] = useState<RelatedNews>({});
+  // Single source of the article corpus, shared by SummaryStats + ArticlesPreview
+  // so the Dashboard makes ONE /api/articles call instead of one per component.
+  const [articles, setArticles] = useState<Article[] | null>(null);
+  const [articlesTotal, setArticlesTotal] = useState<number | null>(null);
+  const [articlesError, setArticlesError] = useState<string | null>(null);
   // True from the moment we POST a dispatch until the new run shows up.
   const [pendingDispatch, setPendingDispatch] = useState<string | null>(null);
   const seenRunIdsRef = useRef<Set<number>>(new Set());
@@ -67,6 +73,32 @@ export default function Dashboard() {
     return () => clearInterval(interval);
   }, [loadRuns, runs, pendingDispatch]);
 
+  // Load the article corpus once on mount and again whenever a run finishes.
+  useEffect(() => {
+    let cancelled = false;
+    fetch("/api/articles")
+      .then(async (r) => {
+        if (!r.ok) {
+          const b = (await r.json().catch(() => ({}))) as { error?: string };
+          throw new Error(b.error ?? `HTTP ${r.status}`);
+        }
+        return r.json() as Promise<{ articles: Article[]; total: number }>;
+      })
+      .then((d) => {
+        if (!cancelled) {
+          setArticles(d.articles);
+          setArticlesTotal(d.total);
+          setArticlesError(null);
+        }
+      })
+      .catch((e) => {
+        if (!cancelled) setArticlesError(e instanceof Error ? e.message : String(e));
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [refreshArticles]);
+
   // Related news loads once on mount and again whenever articles refresh
   // (a fresh enrichment workflow run will have updated the file).
   useEffect(() => {
@@ -88,7 +120,7 @@ export default function Dashboard() {
 
   return (
     <div className="grid gap-6">
-      <SummaryStats refreshSignal={refreshArticles} relatedNews={relatedNews} />
+      <SummaryStats articles={articles} error={articlesError} relatedNews={relatedNews} />
       <RunButtons
         activeRun={activeRun}
         pendingDispatch={pendingDispatch}
@@ -96,7 +128,9 @@ export default function Dashboard() {
       />
       <RunsTable runs={runs} error={error} note={note} onCancelled={loadRuns} />
       <ArticlesPreview
-        refreshSignal={refreshArticles}
+        articles={articles}
+        total={articlesTotal}
+        error={articlesError}
         runs={runs ?? []}
         relatedNews={relatedNews}
       />

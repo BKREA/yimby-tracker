@@ -1,24 +1,8 @@
 "use client";
 
-import { useEffect, useState } from "react";
 import type { RelatedNews } from "./ArticlesPreview";
+import type { Article } from "@/lib/articles";
 import { buildingKey } from "@/lib/profiles";
-
-interface Article {
-  url: string;
-  scraped_at: string;
-  published?: string;
-  article_type?: string;
-  address?: string;
-  street_address?: string;
-  borough?: string;
-  number_of_units?: number | null;
-  transaction_amount?: number | null;
-  buyer?: string;
-  seller?: string;
-  brokers?: string;
-  date_of_transaction?: string;
-}
 
 const STAGE_LABEL: Record<string, string> = {
   construction_update: "Under construction",
@@ -125,27 +109,12 @@ function BarList({
 }
 
 interface Props {
-  refreshSignal: number;
+  articles: Article[] | null;
+  error?: string | null;
   relatedNews?: RelatedNews;
 }
 
-export function SummaryStats({ refreshSignal, relatedNews = {} }: Props) {
-  const [articles, setArticles] = useState<Article[] | null>(null);
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    let cancelled = false;
-    fetch("/api/articles")
-      .then((r) => (r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`))))
-      .then((d: { articles: Article[] }) => {
-        if (!cancelled) setArticles(d.articles);
-      })
-      .catch((e) => !cancelled && setError(e instanceof Error ? e.message : String(e)));
-    return () => {
-      cancelled = true;
-    };
-  }, [refreshSignal]);
-
+export function SummaryStats({ articles, error = null, relatedNews = {} }: Props) {
   if (error) {
     return <p className="text-sm text-red-400">Summary unavailable: {error}</p>;
   }

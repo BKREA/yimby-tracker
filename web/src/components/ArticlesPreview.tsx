@@ -1,34 +1,9 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useState } from "react";
 import { toCsv, downloadText } from "@/lib/csv";
+import type { Article } from "@/lib/articles";
 import type { Run } from "./RunsTable";
-
-interface Article {
-  url: string;
-  scraped_at: string;
-  published?: string;
-  article_type?: string;
-  address?: string;
-  street_address?: string;
-  neighborhood?: string;
-  borough?: string;
-  type?: string;
-  developer?: string;
-  architect?: string;
-  number_of_units?: number | null;
-  square_footage?: number | null;
-  stories?: number | null;
-  height_ft?: number | null;
-  transaction_amount?: number | null;
-  price_per_unit?: number | null;
-  price_per_square_foot?: number | null;
-  buyer?: string;
-  seller?: string;
-  brokers?: string;
-  date_of_transaction?: string;
-  notes?: string;
-}
 
 // The article's PUBLISH date (not the scrape/pull date), as YYYY-MM-DD.
 // Prefers the captured `published` field; falls back to the publish month from
@@ -99,15 +74,14 @@ export interface RelatedRecord {
 export type RelatedNews = Record<string, RelatedRecord[]>;
 
 interface Props {
-  refreshSignal: number;
+  articles: Article[] | null;
+  total: number | null;
+  error: string | null;
   runs: Run[];
   relatedNews?: RelatedNews;
 }
 
-export function ArticlesPreview({ refreshSignal, runs, relatedNews = {} }: Props) {
-  const [articles, setArticles] = useState<Article[] | null>(null);
-  const [total, setTotal] = useState<number | null>(null);
-  const [error, setError] = useState<string | null>(null);
+export function ArticlesPreview({ articles, total, error, runs, relatedNews = {} }: Props) {
   const [tab, _setTab] = useState<"development" | "transaction">("development");
   // Active source view: "yimby" = the scraped corpus (default), "related" = all
   // related-news outlets combined, or a specific outlet name (e.g. "6sqft").
@@ -241,26 +215,6 @@ export function ArticlesPreview({ refreshSignal, runs, relatedNews = {} }: Props
   const filterableRuns = runs.filter(
     (r) => r.articlesAdded !== null && (r.articlesAdded ?? 0) > 0,
   );
-
-  const load = useCallback(async () => {
-    try {
-      const res = await fetch("/api/articles");
-      if (!res.ok) {
-        const body = (await res.json().catch(() => ({}))) as { error?: string };
-        throw new Error(body.error ?? `HTTP ${res.status}`);
-      }
-      const data = (await res.json()) as { articles: Article[]; total: number };
-      setArticles(data.articles);
-      setTotal(data.total);
-      setError(null);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
-    }
-  }, []);
-
-  useEffect(() => {
-    load();
-  }, [load, refreshSignal]);
 
   // Apply date + text filters to the *base* set so tab counts reflect what's
   // visible under the current filters.
