@@ -1,5 +1,12 @@
 [
   {
+    "run_id": 28947740607,
+    "completed_at": "2026-07-08T13:49:38.631971+00:00",
+    "articles_added": 5,
+    "articles_failed": 0,
+    "status": "success"
+  },
+  {
     "run_id": 28873174214,
     "completed_at": "2026-07-07T14:16:25.639259+00:00",
     "articles_added": 0,
