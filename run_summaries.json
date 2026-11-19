@@ -1,5 +1,12 @@
 [
   {
+    "run_id": 44602536197,
+    "completed_at": "2026-11-19T19:51:17.972712+00:00",
+    "articles_added": 3,
+    "articles_failed": 0,
+    "status": "success"
+  },
+  {
     "run_id": 44384557423,
     "completed_at": "2026-11-18T19:51:01.460431+00:00",
     "articles_added": 4,
@@ -1389,13 +1396,6 @@
     "run_id": 26456024038,
     "completed_at": "2026-05-26T14:55:21.419535+00:00",
     "articles_added": 8,
-    "articles_failed": 0,
-    "status": "success"
-  },
-  {
-    "run_id": 26406136020,
-    "completed_at": "2026-05-25T14:43:25.743827+00:00",
-    "articles_added": 0,
     "articles_failed": 0,
     "status": "success"
   }
